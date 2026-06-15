@@ -1,0 +1,9 @@
+﻿# Real/private annotation datasets
+/data.csv
+/*_data.csv
+/*data*.csv
+!/data.sample.csv
+
+# Local annotation exports
+/multihop_annotations*.json
+/multihop_annotations*.csv

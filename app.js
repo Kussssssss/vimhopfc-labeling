@@ -1,0 +1,764 @@
+﻿const LABELS = ["SUP", "REFUTE", "NEI"];
+const LABEL_NAMES = {
+  SUP: "SUP",
+  REFUTE: "REFUTE",
+  NEI: "NEI",
+};
+
+const state = {
+  allRows: [],
+  rows: [],
+  currentIndex: 0,
+  annotations: {},
+  selectedRange: null,
+  sourceName: "data.sample.csv",
+};
+
+const els = {
+  sampleMeta: document.getElementById("sampleMeta"),
+  csvInput: document.getElementById("csvInput"),
+  exportJsonBtn: document.getElementById("exportJsonBtn"),
+  exportCsvBtn: document.getElementById("exportCsvBtn"),
+  prevBtn: document.getElementById("prevBtn"),
+  nextBtn: document.getElementById("nextBtn"),
+  sampleIndex: document.getElementById("sampleIndex"),
+  sampleCount: document.getElementById("sampleCount"),
+  statusFilter: document.getElementById("statusFilter"),
+  searchInput: document.getElementById("searchInput"),
+  bridgeEntity: document.getElementById("bridgeEntity"),
+  bridgeType: document.getElementById("bridgeType"),
+  subjectEntity: document.getElementById("subjectEntity"),
+  subjectType: document.getElementById("subjectType"),
+  multiHopQuestion: document.getElementById("multiHopQuestion"),
+  multiHopAnswer: document.getElementById("multiHopAnswer"),
+  contextA: document.getElementById("contextA"),
+  contextB: document.getElementById("contextB"),
+  contextAStats: document.getElementById("contextAStats"),
+  contextBStats: document.getElementById("contextBStats"),
+  selectionState: document.getElementById("selectionState"),
+  selectedText: document.getElementById("selectedText"),
+  evidenceLabel: document.getElementById("evidenceLabel"),
+  claimTarget: document.getElementById("claimTarget"),
+  addEvidenceBtn: document.getElementById("addEvidenceBtn"),
+  claimsList: document.getElementById("claimsList"),
+  claimTemplate: document.getElementById("claimTemplate"),
+};
+
+function uid(prefix = "id") {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function storageKey() {
+  return `mh-labeler:${state.sourceName}`;
+}
+
+function saveAnnotations() {
+  localStorage.setItem(storageKey(), JSON.stringify(state.annotations));
+}
+
+function loadAnnotations() {
+  try {
+    state.annotations = JSON.parse(localStorage.getItem(storageKey()) || "{}");
+  } catch {
+    state.annotations = {};
+  }
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (ch === '"') {
+      if (inQuotes && next === '"') {
+        field += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (ch === "," && !inQuotes) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && next === "\n") i += 1;
+      row.push(field);
+      if (row.some((cell) => cell.length > 0)) rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
+
+    field += ch;
+  }
+
+  row.push(field);
+  if (row.some((cell) => cell.length > 0)) rows.push(row);
+
+  const headers = rows.shift() || [];
+  return rows.map((cells, index) => {
+    const item = { __rowNumber: index + 2 };
+    headers.forEach((header, columnIndex) => {
+      item[header] = cells[columnIndex] || "";
+    });
+    return normalizeRow(item);
+  });
+}
+
+function safeJson(text) {
+  if (!text || !text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
+function cleanMarkedText(text) {
+  return String(text || "").replace(/\[\[(.*?)\]\]/g, "$1");
+}
+
+function extractMarkedRanges(text) {
+  const ranges = [];
+  const source = String(text || "");
+  let clean = "";
+  let cursor = 0;
+  const regex = /\[\[(.*?)\]\]/g;
+  let match;
+
+  while ((match = regex.exec(source))) {
+    clean += source.slice(cursor, match.index);
+    const start = clean.length;
+    clean += match[1];
+    ranges.push({
+      start,
+      end: clean.length,
+      type: "marked",
+      text: match[1],
+    });
+    cursor = match.index + match[0].length;
+  }
+
+  clean += source.slice(cursor);
+  return { clean, ranges };
+}
+
+function normalizeForFind(text) {
+  return String(text || "").toLocaleLowerCase("vi-VN");
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function addEntityRanges(text, entityTexts, existingRanges) {
+  const ranges = [...existingRanges];
+  const haystack = normalizeForFind(text);
+  const seen = new Set(ranges.map((range) => `${range.start}:${range.end}`));
+
+  entityTexts
+    .filter(Boolean)
+    .map((entity) => cleanMarkedText(entity).trim())
+    .filter((entity, index, arr) => entity && arr.indexOf(entity) === index)
+    .forEach((entity) => {
+      const needle = normalizeForFind(entity);
+      let index = 0;
+      while ((index = haystack.indexOf(needle, index)) !== -1) {
+        const key = `${index}:${index + needle.length}`;
+        if (!seen.has(key)) {
+          ranges.push({
+            start: index,
+            end: index + needle.length,
+            type: "entity",
+            text: text.slice(index, index + needle.length),
+          });
+          seen.add(key);
+        }
+        index += Math.max(needle.length, 1);
+      }
+    });
+
+  return ranges.filter((range) => range.end > range.start);
+}
+
+function normalizeRow(row) {
+  const sub = safeJson(row.sub_question_result);
+  const hop = safeJson(row.multi_hop_result);
+  const analysis = sub.analysis || {};
+  const markedA = extractMarkedRanges(analysis.document_a_segments || "");
+  const markedB = extractMarkedRanges(analysis.document_b_segments || row.segment_text || "");
+  const contextA = markedA.clean || "";
+  const contextB = markedB.clean || cleanMarkedText(row.segment_text || "");
+  const entityTexts = [
+    row.bridge_entity,
+    row.subject_entity,
+    sub?.sub_questions?.answer_a,
+    sub?.sub_questions?.answer_b,
+    hop.answer,
+  ];
+
+  return {
+    ...row,
+    key: [
+      row.bridge_id,
+      row.subject_id,
+      row.segment_id,
+      row.segment_index,
+      row.rank,
+      row.__rowNumber,
+    ].join("|"),
+    sub,
+    hop,
+    contextA,
+    contextB,
+    entityRanges: {
+      A: addEntityRanges(contextA, entityTexts, markedA.ranges),
+      B: addEntityRanges(contextB, entityTexts, markedB.ranges),
+    },
+  };
+}
+
+function currentRow() {
+  return state.rows[state.currentIndex] || null;
+}
+
+function currentAnnotation() {
+  const row = currentRow();
+  if (!row) return { claims: [] };
+  if (!state.annotations[row.key]) {
+    state.annotations[row.key] = { claims: [] };
+  }
+  return state.annotations[row.key];
+}
+
+function wordCount(text) {
+  return String(text || "").trim().split(/\s+/).filter(Boolean).length;
+}
+
+function claimOrdinal(claim, claims = currentAnnotation().claims, label = claim.label) {
+  return claims.filter((item) => item.label === label).findIndex((item) => item.id === claim.id) + 1;
+}
+
+function evidenceOrdinal(claim, evidenceId) {
+  return claim.evidences.findIndex((item) => item.id === evidenceId) + 1;
+}
+
+function evidenceTag(claim, evidence) {
+  const claims = currentAnnotation().claims;
+  const base = claimOrdinal(claim, claims, claim.label) || claims.indexOf(claim) + 1;
+  const ordinal = evidenceOrdinal(claim, evidence.id);
+  const suffix = ordinal > 1 ? `.${ordinal}` : "";
+  return `Evidence ${evidence.label} ${base}${suffix}`;
+}
+
+function evidenceRangesFor(contextId) {
+  const ranges = [];
+  currentAnnotation().claims.forEach((claim) => {
+    claim.evidences.forEach((evidence) => {
+      if (evidence.contextId === contextId) {
+        ranges.push({
+          ...evidence,
+          tag: evidenceTag(claim, evidence),
+          claimId: claim.id,
+        });
+      }
+    });
+  });
+  return ranges;
+}
+
+function rangesOverlap(a, b) {
+  return a.start < b.end && b.start < a.end;
+}
+
+function renderContext(contextId) {
+  const row = currentRow();
+  const target = contextId === "A" ? els.contextA : els.contextB;
+  const text = contextId === "A" ? row?.contextA || "" : row?.contextB || "";
+  const entityRanges = row?.entityRanges?.[contextId] || [];
+  const evidenceRanges = evidenceRangesFor(contextId);
+  const boundaries = new Set([0, text.length]);
+
+  [...entityRanges, ...evidenceRanges].forEach((range) => {
+    boundaries.add(Math.max(0, Math.min(text.length, range.start)));
+    boundaries.add(Math.max(0, Math.min(text.length, range.end)));
+  });
+
+  const points = [...boundaries].sort((a, b) => a - b);
+  target.textContent = "";
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const start = points[i];
+    const end = points[i + 1];
+    if (end <= start) continue;
+
+    const segment = text.slice(start, end);
+    const activeEntities = entityRanges.filter((range) => rangesOverlap(range, { start, end }));
+    const activeEvidence = evidenceRanges.filter((range) => rangesOverlap(range, { start, end }));
+
+    if (!activeEntities.length && !activeEvidence.length) {
+      target.append(document.createTextNode(segment));
+      continue;
+    }
+
+    const span = document.createElement("span");
+    span.textContent = segment;
+    if (activeEntities.length) span.classList.add("entity-hit");
+    if (activeEvidence.length) {
+      const primaryEvidence = activeEvidence[activeEvidence.length - 1];
+      span.classList.add("evidence-hit", `ev-${primaryEvidence.label.toLowerCase()}`);
+      const ending = activeEvidence.filter((range) => range.end === end);
+      if (ending.length) {
+        span.classList.add("evidence-end");
+        span.dataset.tag = ending.map((range) => range.tag).join(" ");
+      }
+    }
+    target.append(span);
+  }
+}
+
+function renderClaimOptions() {
+  const claims = currentAnnotation().claims;
+  els.claimTarget.textContent = "";
+
+  if (!claims.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Chưa có claim";
+    els.claimTarget.append(option);
+    return;
+  }
+
+  claims.forEach((claim, index) => {
+    const option = document.createElement("option");
+    option.value = claim.id;
+    option.textContent = `Câu ${claim.label} ${claimOrdinal(claim) || index + 1}`;
+    els.claimTarget.append(option);
+  });
+}
+
+function renderClaims() {
+  const annotation = currentAnnotation();
+  els.claimsList.textContent = "";
+
+  if (!annotation.claims.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "Chưa có claim";
+    els.claimsList.append(empty);
+    renderClaimOptions();
+    return;
+  }
+
+  annotation.claims.forEach((claim) => {
+    const fragment = els.claimTemplate.content.cloneNode(true);
+    const card = fragment.querySelector(".claim-card");
+    const title = fragment.querySelector(".claim-title");
+    const label = fragment.querySelector(".claim-label");
+    const text = fragment.querySelector(".claim-text");
+    const deleteBtn = fragment.querySelector(".delete-claim");
+    const evidenceBox = fragment.querySelector(".claim-evidence");
+
+    card.dataset.label = claim.label;
+    title.textContent = `Câu ${claim.label} ${claimOrdinal(claim)}`;
+    label.value = claim.label;
+    text.value = claim.text || "";
+
+    label.addEventListener("change", () => {
+      claim.label = label.value;
+      claim.evidences.forEach((evidence) => {
+        evidence.label = label.value;
+      });
+      saveAnnotations();
+      renderAll();
+    });
+
+    text.addEventListener("input", () => {
+      claim.text = text.value;
+      saveAnnotations();
+    });
+
+    deleteBtn.addEventListener("click", () => {
+      annotation.claims = annotation.claims.filter((item) => item.id !== claim.id);
+      saveAnnotations();
+      renderAll();
+    });
+
+    if (!claim.evidences.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "Chưa có evidence";
+      evidenceBox.append(empty);
+    } else {
+      claim.evidences.forEach((evidence) => {
+        const chip = document.createElement("div");
+        chip.className = "evidence-chip";
+        chip.dataset.label = evidence.label;
+
+        const tag = document.createElement("strong");
+        tag.textContent = evidenceTag(claim, evidence);
+
+        const body = document.createElement("span");
+        body.textContent = `${evidence.contextId}: ${evidence.text}`;
+
+        const remove = document.createElement("button");
+        remove.className = "remove-evidence";
+        remove.type = "button";
+        remove.textContent = "×";
+        remove.setAttribute("aria-label", "Xoa evidence");
+        remove.addEventListener("click", () => {
+          claim.evidences = claim.evidences.filter((item) => item.id !== evidence.id);
+          saveAnnotations();
+          renderAll();
+        });
+
+        chip.append(tag, body, remove);
+        evidenceBox.append(chip);
+      });
+    }
+
+    els.claimsList.append(fragment);
+  });
+
+  renderClaimOptions();
+}
+
+function renderSample() {
+  const row = currentRow();
+  if (!row) {
+    els.sampleMeta.textContent = "Không có dữ liệu";
+    return;
+  }
+
+  const annotation = currentAnnotation();
+  const evidenceCount = annotation.claims.reduce((sum, claim) => sum + claim.evidences.length, 0);
+  els.sampleMeta.textContent = `Sample ${state.currentIndex + 1}/${state.rows.length} · row ${row.__rowNumber} · ${row.status || "-"}`;
+  els.sampleIndex.value = String(state.currentIndex + 1);
+  els.sampleIndex.max = String(state.rows.length || 1);
+  els.sampleCount.textContent = `/ ${state.rows.length}`;
+  els.prevBtn.disabled = state.currentIndex <= 0;
+  els.nextBtn.disabled = state.currentIndex >= state.rows.length - 1;
+
+  els.bridgeEntity.textContent = row.bridge_entity || "-";
+  els.bridgeType.textContent = row.bridge_type ? `(${row.bridge_type})` : "";
+  els.subjectEntity.textContent = row.subject_entity || "-";
+  els.subjectType.textContent = row.subject_type ? `(${row.subject_type})` : "";
+  els.multiHopQuestion.textContent = row.hop?.multi_hop_question || row.sub?.sub_questions?.sub_question_a || "-";
+  els.multiHopAnswer.textContent = row.hop?.answer || row.sub?.sub_questions?.answer_b || "-";
+  els.contextAStats.textContent = `${wordCount(row.contextA)} từ`;
+  els.contextBStats.textContent = `${wordCount(row.contextB)} từ · rank ${row.rank || "-"}`;
+
+  renderContext("A");
+  renderContext("B");
+  renderClaims();
+  updateSelection(null);
+  els.exportJsonBtn.disabled = !Object.keys(state.annotations).length;
+  els.exportCsvBtn.disabled = !Object.keys(state.annotations).length;
+  document.title = `MH Labeler · ${annotation.claims.length} claims · ${evidenceCount} evidence`;
+}
+
+function renderAll() {
+  renderSample();
+}
+
+function applyFilters() {
+  const status = els.statusFilter.value;
+  const query = normalizeForFind(els.searchInput.value.trim());
+  const previousKey = currentRow()?.key;
+
+  state.rows = state.allRows.filter((row) => {
+    const statusMatch =
+      status === "ALL" ||
+      (status === "FAIL" ? String(row.status || "").startsWith("FAIL") : row.status === status);
+    if (!statusMatch) return false;
+    if (!query) return true;
+    const haystack = normalizeForFind(
+      [
+        row.bridge_entity,
+        row.subject_entity,
+        row.contextA,
+        row.contextB,
+        row.hop?.multi_hop_question,
+        row.hop?.answer,
+      ].join(" "),
+    );
+    return haystack.includes(query);
+  });
+
+  const nextIndex = state.rows.findIndex((row) => row.key === previousKey);
+  state.currentIndex = nextIndex >= 0 ? nextIndex : 0;
+  renderAll();
+}
+
+function addClaim(label) {
+  const annotation = currentAnnotation();
+  annotation.claims.push({
+    id: uid("claim"),
+    label,
+    text: "",
+    evidences: [],
+    createdAt: new Date().toISOString(),
+  });
+  saveAnnotations();
+  renderAll();
+}
+
+function getContextFromSelection(selection) {
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  const startEl =
+    range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? range.startContainer
+      : range.startContainer.parentElement;
+  const endEl =
+    range.endContainer.nodeType === Node.ELEMENT_NODE
+      ? range.endContainer
+      : range.endContainer.parentElement;
+  const startContext = startEl?.closest?.(".context-body");
+  const endContext = endEl?.closest?.(".context-body");
+  if (!startContext || !endContext || startContext !== endContext) return null;
+  return startContext;
+}
+
+function selectedOffsets(container, range) {
+  const preStart = document.createRange();
+  preStart.selectNodeContents(container);
+  preStart.setEnd(range.startContainer, range.startOffset);
+  const start = preStart.toString().length;
+
+  const preEnd = document.createRange();
+  preEnd.selectNodeContents(container);
+  preEnd.setEnd(range.endContainer, range.endOffset);
+  const end = preEnd.toString().length;
+
+  return start < end ? { start, end } : { start: end, end: start };
+}
+
+function readSelection() {
+  const selection = window.getSelection();
+  const container = getContextFromSelection(selection);
+  if (!container) return null;
+  const range = selection.getRangeAt(0);
+  const offsets = selectedOffsets(container, range);
+  const contextId = container.dataset.context;
+  const row = currentRow();
+  const text = contextId === "A" ? row.contextA : row.contextB;
+  const selectedText = text.slice(offsets.start, offsets.end).trim();
+  if (!selectedText) return null;
+  return {
+    contextId,
+    start: offsets.start,
+    end: offsets.end,
+    text: selectedText,
+  };
+}
+
+function updateSelection(selectionRange = readSelection()) {
+  state.selectedRange = selectionRange;
+  if (!selectionRange) {
+    els.selectionState.textContent = "Chưa chọn đoạn";
+    els.selectedText.textContent = "";
+    els.addEvidenceBtn.disabled = true;
+    return;
+  }
+
+  els.selectionState.textContent = `Context ${selectionRange.contextId} · ${selectionRange.end - selectionRange.start} ký tự`;
+  els.selectedText.textContent = selectionRange.text;
+  els.addEvidenceBtn.disabled = !currentAnnotation().claims.length;
+}
+
+function addEvidenceFromSelection() {
+  const selectionRange = state.selectedRange || readSelection();
+  const annotation = currentAnnotation();
+  const claim = annotation.claims.find((item) => item.id === els.claimTarget.value);
+  if (!selectionRange || !claim) return;
+
+  const label = els.evidenceLabel.value || claim.label;
+  claim.evidences.push({
+    id: uid("ev"),
+    label,
+    contextId: selectionRange.contextId,
+    start: selectionRange.start,
+    end: selectionRange.end,
+    text: selectionRange.text,
+    createdAt: new Date().toISOString(),
+  });
+  saveAnnotations();
+  window.getSelection()?.removeAllRanges();
+  renderAll();
+}
+
+function downloadFile(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportJson() {
+  const payload = {
+    source: state.sourceName,
+    exportedAt: new Date().toISOString(),
+    annotations: state.annotations,
+  };
+  downloadFile("multihop_annotations.json", JSON.stringify(payload, null, 2), "application/json");
+}
+
+function csvCell(value) {
+  const text = value == null ? "" : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function exportCsv() {
+  const rows = [
+    [
+      "sample_key",
+      "row_number",
+      "bridge_entity",
+      "subject_entity",
+      "claim_id",
+      "claim_label",
+      "claim_text",
+      "evidence_id",
+      "evidence_label",
+      "evidence_tag",
+      "context_id",
+      "start",
+      "end",
+      "evidence_text",
+    ],
+  ];
+
+  state.allRows.forEach((row) => {
+    const annotation = state.annotations[row.key];
+    if (!annotation) return;
+    annotation.claims.forEach((claim) => {
+      if (!claim.evidences.length) {
+        rows.push([
+          row.key,
+          row.__rowNumber,
+          row.bridge_entity,
+          row.subject_entity,
+          claim.id,
+          claim.label,
+          claim.text,
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+        ]);
+        return;
+      }
+
+      claim.evidences.forEach((evidence) => {
+        rows.push([
+          row.key,
+          row.__rowNumber,
+          row.bridge_entity,
+          row.subject_entity,
+          claim.id,
+          claim.label,
+          claim.text,
+          evidence.id,
+          evidence.label,
+          evidenceTag(claim, evidence),
+          evidence.contextId,
+          evidence.start,
+          evidence.end,
+          evidence.text,
+        ]);
+      });
+    });
+  });
+
+  downloadFile("multihop_annotations.csv", rows.map((row) => row.map(csvCell).join(",")).join("\n"), "text/csv");
+}
+
+async function loadCsvText(text, name = "data.sample.csv") {
+  state.sourceName = name;
+  state.allRows = parseCsv(text);
+  state.rows = [...state.allRows];
+  state.currentIndex = 0;
+  loadAnnotations();
+  applyFilters();
+}
+
+async function loadDefaultCsv() {
+  try {
+    const response = await fetch("./data.sample.csv");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    await loadCsvText(await response.text(), "data.sample.csv");
+  } catch {
+    state.allRows = [];
+    state.rows = [];
+    els.sampleMeta.textContent = "Hãy nạp file CSV";
+    renderAll();
+  }
+}
+
+els.csvInput.addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  await loadCsvText(await file.text(), file.name);
+});
+
+els.exportJsonBtn.addEventListener("click", exportJson);
+els.exportCsvBtn.addEventListener("click", exportCsv);
+
+els.prevBtn.addEventListener("click", () => {
+  state.currentIndex = Math.max(0, state.currentIndex - 1);
+  renderAll();
+});
+
+els.nextBtn.addEventListener("click", () => {
+  state.currentIndex = Math.min(state.rows.length - 1, state.currentIndex + 1);
+  renderAll();
+});
+
+els.sampleIndex.addEventListener("change", () => {
+  const target = Number.parseInt(els.sampleIndex.value, 10);
+  if (!Number.isFinite(target)) return;
+  state.currentIndex = Math.max(0, Math.min(state.rows.length - 1, target - 1));
+  renderAll();
+});
+
+els.statusFilter.addEventListener("change", applyFilters);
+els.searchInput.addEventListener("input", applyFilters);
+
+document.querySelectorAll("[data-add-claim]").forEach((button) => {
+  button.addEventListener("click", () => addClaim(button.dataset.addClaim));
+});
+
+els.claimTarget.addEventListener("change", () => {
+  const claim = currentAnnotation().claims.find((item) => item.id === els.claimTarget.value);
+  if (claim) els.evidenceLabel.value = claim.label;
+});
+
+els.addEvidenceBtn.addEventListener("click", addEvidenceFromSelection);
+
+["mouseup", "keyup", "selectionchange"].forEach((eventName) => {
+  document.addEventListener(eventName, () => {
+    window.requestAnimationFrame(() => updateSelection());
+  });
+});
+
+loadDefaultCsv();
+

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Multi-hop Fact-checking Labeler</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">MH</div>
+          <div>
+            <h1>Multi-hop Fact-checking Labeler</h1>
+            <p id="sampleMeta">Đang tải dữ liệu...</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <label class="file-button">
+            <input id="csvInput" type="file" accept=".csv,text/csv" />
+            Nạp CSV
+          </label>
+          <button id="exportJsonBtn" type="button">Export JSON</button>
+          <button id="exportCsvBtn" type="button">Export CSV</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="left-pane">
+          <div class="sample-toolbar">
+            <button id="prevBtn" type="button" aria-label="Mẫu trước">‹</button>
+            <div class="sample-nav">
+              <input id="sampleIndex" type="number" min="1" value="1" />
+              <span id="sampleCount">/ 0</span>
+            </div>
+            <button id="nextBtn" type="button" aria-label="Mẫu tiếp">›</button>
+            <select id="statusFilter" aria-label="Loc trang thai">
+              <option value="ALL">Tất cả status</option>
+              <option value="OK">OK</option>
+              <option value="FAIL">FAIL</option>
+            </select>
+            <input id="searchInput" type="search" placeholder="Tìm entity, claim, context" />
+          </div>
+
+          <section class="sample-brief">
+            <div>
+              <span class="brief-label">Bridge</span>
+              <strong id="bridgeEntity">-</strong>
+              <span id="bridgeType"></span>
+            </div>
+            <div>
+              <span class="brief-label">Subject</span>
+              <strong id="subjectEntity">-</strong>
+              <span id="subjectType"></span>
+            </div>
+            <div>
+              <span class="brief-label">Question</span>
+              <span id="multiHopQuestion">-</span>
+            </div>
+            <div>
+              <span class="brief-label">Answer</span>
+              <span id="multiHopAnswer">-</span>
+            </div>
+          </section>
+
+          <div class="context-stack">
+            <article class="context-card">
+              <div class="context-head">
+                <h2>Context A</h2>
+                <span id="contextAStats"></span>
+              </div>
+              <div id="contextA" class="context-body" data-context="A"></div>
+            </article>
+
+            <article class="context-card">
+              <div class="context-head">
+                <h2>Context B</h2>
+                <span id="contextBStats"></span>
+              </div>
+              <div id="contextB" class="context-body" data-context="B"></div>
+            </article>
+          </div>
+        </section>
+
+        <aside class="right-pane">
+          <section class="evidence-panel">
+            <div class="panel-head">
+              <h2>Evidence</h2>
+              <span id="selectionState">Chưa chọn đoạn</span>
+            </div>
+            <div class="selected-text" id="selectedText"></div>
+            <div class="control-grid">
+              <label>
+                Label
+                <select id="evidenceLabel">
+                  <option value="SUP">SUP</option>
+                  <option value="REFUTE">REFUTE</option>
+                  <option value="NEI">NEI</option>
+                </select>
+              </label>
+              <label>
+                Claim
+                <select id="claimTarget"></select>
+              </label>
+            </div>
+            <button id="addEvidenceBtn" class="primary" type="button">Gắn evidence</button>
+          </section>
+
+          <section class="claims-panel">
+            <div class="panel-head">
+              <h2>Claims</h2>
+              <div class="quick-add">
+                <button data-add-claim="SUP" type="button">+ SUP</button>
+                <button data-add-claim="REFUTE" type="button">+ REFUTE</button>
+                <button data-add-claim="NEI" type="button">+ NEI</button>
+              </div>
+            </div>
+            <div id="claimsList" class="claims-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <template id="claimTemplate">
+      <article class="claim-card">
+        <div class="claim-head">
+          <span class="claim-title"></span>
+          <div class="claim-actions">
+            <select class="claim-label">
+              <option value="SUP">SUP</option>
+              <option value="REFUTE">REFUTE</option>
+              <option value="NEI">NEI</option>
+            </select>
+            <button class="delete-claim" type="button" aria-label="Xóa claim">×</button>
+          </div>
+        </div>
+        <textarea class="claim-text" rows="3" placeholder="Viết claim..."></textarea>
+        <div class="claim-evidence"></div>
+      </article>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
