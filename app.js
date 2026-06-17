@@ -1,10 +1,66 @@
-﻿const LABELS = ["SUP", "REFUTE", "NEI"];
+const LABELS = ["SUP", "REFUTE", "NEI"];
 const LABEL_NAMES = {
   SUP: "SUP",
   REFUTE: "REFUTE",
   NEI: "NEI",
 };
+const PALETTE = [
+  "53, 168, 82",    // Green
+  "217, 53, 53",    // Red
+  "63, 122, 216",   // Blue
+  "230, 115, 0",    // Orange
+  "128, 0, 128",    // Purple
+  "0, 150, 136",    // Teal
+  "233, 30, 99",    // Pink
+  "121, 85, 72",    // Brown
+  "0, 188, 212",    // Cyan
+  "139, 195, 74",   // Light Green
+];
+window.hoveredEvidenceId = null;
+window.hoveredClaimId = null;
+function getSpanBackground(evidences, hasEntity) {
+  let layers = [];
+  if (hasEntity) {
+    layers.push(`linear-gradient(var(--entity), var(--entity))`);
+  }
+  if (window.hoveredEvidenceId) {
+    const hoveredEv = evidences.find(e => e.id === window.hoveredEvidenceId);
+    if (hoveredEv) {
+      layers.push(`linear-gradient(rgba(${hoveredEv.colorRgb}, 0.5), rgba(${hoveredEv.colorRgb}, 0.5))`);
+    } else {
+      evidences.forEach(e => layers.push(`linear-gradient(rgba(${e.colorRgb}, 0.08), rgba(${e.colorRgb}, 0.08))`));
+    }
+  } else if (window.hoveredClaimId) {
+    const hoveredClaimEvs = evidences.filter(e => e.claimId === window.hoveredClaimId);
+    if (hoveredClaimEvs.length > 0) {
+      hoveredClaimEvs.forEach(e => layers.push(`linear-gradient(rgba(${e.colorRgb}, 0.5), rgba(${e.colorRgb}, 0.5))`));
+    } else {
+      evidences.forEach(e => layers.push(`linear-gradient(rgba(${e.colorRgb}, 0.08), rgba(${e.colorRgb}, 0.08))`));
+    }
+  } else {
+    evidences.forEach(e => layers.push(`linear-gradient(rgba(${e.colorRgb}, 0.3), rgba(${e.colorRgb}, 0.3))`));
+  }
+  return layers.length ? layers.join(", ") : "";
+}
+function updateEvidenceHighlights() {
+  document.querySelectorAll('.evidence-hit, .entity-hit').forEach(span => {
+    const hasEntity = span.dataset.hasEntity === "true";
+    const evs = JSON.parse(span.dataset.evidences || "[]");
+    span.style.background = getSpanBackground(evs, hasEntity);
+  });
 
+  document.querySelectorAll('.evidence-tag').forEach(tag => {
+    const evId = tag.dataset.evId;
+    const claimId = tag.dataset.claimId;
+    if (window.hoveredEvidenceId) {
+      tag.style.opacity = evId === window.hoveredEvidenceId ? "1" : "0.15";
+    } else if (window.hoveredClaimId) {
+      tag.style.opacity = claimId === window.hoveredClaimId ? "1" : "0.15";
+    } else {
+      tag.style.opacity = "1";
+    }
+  });
+}
 const state = {
   allRows: [],
   rows: [],
@@ -13,7 +69,6 @@ const state = {
   selectedRange: null,
   sourceName: "data.sample.csv",
 };
-
 const els = {
   sampleMeta: document.getElementById("sampleMeta"),
   csvInput: document.getElementById("csvInput"),
@@ -29,33 +84,22 @@ const els = {
   bridgeType: document.getElementById("bridgeType"),
   subjectEntity: document.getElementById("subjectEntity"),
   subjectType: document.getElementById("subjectType"),
-  multiHopQuestion: document.getElementById("multiHopQuestion"),
-  multiHopAnswer: document.getElementById("multiHopAnswer"),
   contextA: document.getElementById("contextA"),
-  contextB: document.getElementById("contextB"),
   contextAStats: document.getElementById("contextAStats"),
+  contextB: document.getElementById("contextB"),
   contextBStats: document.getElementById("contextBStats"),
-  selectionState: document.getElementById("selectionState"),
-  selectedText: document.getElementById("selectedText"),
-  evidenceLabel: document.getElementById("evidenceLabel"),
-  claimTarget: document.getElementById("claimTarget"),
-  addEvidenceBtn: document.getElementById("addEvidenceBtn"),
   claimsList: document.getElementById("claimsList"),
   claimTemplate: document.getElementById("claimTemplate"),
 };
-
 function uid(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
-
 function storageKey() {
   return `mh-labeler:${state.sourceName}`;
 }
-
 function saveAnnotations() {
   localStorage.setItem(storageKey(), JSON.stringify(state.annotations));
 }
-
 function loadAnnotations() {
   try {
     state.annotations = JSON.parse(localStorage.getItem(storageKey()) || "{}");
@@ -63,17 +107,14 @@ function loadAnnotations() {
     state.annotations = {};
   }
 }
-
 function parseCsv(text) {
   const rows = [];
   let row = [];
   let field = "";
   let inQuotes = false;
-
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i];
     const next = text[i + 1];
-
     if (ch === '"') {
       if (inQuotes && next === '"') {
         field += '"';
@@ -83,13 +124,11 @@ function parseCsv(text) {
       }
       continue;
     }
-
     if (ch === "," && !inQuotes) {
       row.push(field);
       field = "";
       continue;
     }
-
     if ((ch === "\n" || ch === "\r") && !inQuotes) {
       if (ch === "\r" && next === "\n") i += 1;
       row.push(field);
@@ -98,13 +137,10 @@ function parseCsv(text) {
       field = "";
       continue;
     }
-
     field += ch;
   }
-
   row.push(field);
   if (row.some((cell) => cell.length > 0)) rows.push(row);
-
   const headers = rows.shift() || [];
   return rows.map((cells, index) => {
     const item = { __rowNumber: index + 2 };
@@ -114,7 +150,6 @@ function parseCsv(text) {
     return normalizeRow(item);
   });
 }
-
 function safeJson(text) {
   if (!text || !text.trim()) return {};
   try {
@@ -123,11 +158,9 @@ function safeJson(text) {
     return {};
   }
 }
-
 function cleanMarkedText(text) {
   return String(text || "").replace(/\[\[(.*?)\]\]/g, "$1");
 }
-
 function extractMarkedRanges(text) {
   const ranges = [];
   const source = String(text || "");
@@ -135,7 +168,6 @@ function extractMarkedRanges(text) {
   let cursor = 0;
   const regex = /\[\[(.*?)\]\]/g;
   let match;
-
   while ((match = regex.exec(source))) {
     clean += source.slice(cursor, match.index);
     const start = clean.length;
@@ -148,24 +180,19 @@ function extractMarkedRanges(text) {
     });
     cursor = match.index + match[0].length;
   }
-
   clean += source.slice(cursor);
   return { clean, ranges };
 }
-
 function normalizeForFind(text) {
   return String(text || "").toLocaleLowerCase("vi-VN");
 }
-
 function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-
 function addEntityRanges(text, entityTexts, existingRanges) {
   const ranges = [...existingRanges];
   const haystack = normalizeForFind(text);
   const seen = new Set(ranges.map((range) => `${range.start}:${range.end}`));
-
   entityTexts
     .filter(Boolean)
     .map((entity) => cleanMarkedText(entity).trim())
@@ -187,18 +214,15 @@ function addEntityRanges(text, entityTexts, existingRanges) {
         index += Math.max(needle.length, 1);
       }
     });
-
   return ranges.filter((range) => range.end > range.start);
 }
-
 function normalizeRow(row) {
   const sub = safeJson(row.sub_question_result);
   const hop = safeJson(row.multi_hop_result);
-  const analysis = sub.analysis || {};
-  const markedA = extractMarkedRanges(analysis.document_a_segments || "");
-  const markedB = extractMarkedRanges(analysis.document_b_segments || row.segment_text || "");
+  const markedA = extractMarkedRanges(row.bridge_content || "");
+  const markedB = extractMarkedRanges(row.subject_content || "");
   const contextA = markedA.clean || "";
-  const contextB = markedB.clean || cleanMarkedText(row.segment_text || "");
+  const contextB = markedB.clean || "";
   const entityTexts = [
     row.bridge_entity,
     row.subject_entity,
@@ -206,15 +230,13 @@ function normalizeRow(row) {
     sub?.sub_questions?.answer_b,
     hop.answer,
   ];
-
   return {
     ...row,
     key: [
       row.bridge_id,
       row.subject_id,
-      row.segment_id,
-      row.segment_index,
-      row.rank,
+      row.bridge_entity,
+      row.subject_entity,
       row.__rowNumber,
     ].join("|"),
     sub,
@@ -227,11 +249,9 @@ function normalizeRow(row) {
     },
   };
 }
-
 function currentRow() {
   return state.rows[state.currentIndex] || null;
 }
-
 function currentAnnotation() {
   const row = currentRow();
   if (!row) return { claims: [] };
@@ -240,19 +260,15 @@ function currentAnnotation() {
   }
   return state.annotations[row.key];
 }
-
 function wordCount(text) {
   return String(text || "").trim().split(/\s+/).filter(Boolean).length;
 }
-
 function claimOrdinal(claim, claims = currentAnnotation().claims, label = claim.label) {
   return claims.filter((item) => item.label === label).findIndex((item) => item.id === claim.id) + 1;
 }
-
 function evidenceOrdinal(claim, evidenceId) {
   return claim.evidences.findIndex((item) => item.id === evidenceId) + 1;
 }
-
 function evidenceTag(claim, evidence) {
   const claims = currentAnnotation().claims;
   const base = claimOrdinal(claim, claims, claim.label) || claims.indexOf(claim) + 1;
@@ -260,27 +276,30 @@ function evidenceTag(claim, evidence) {
   const suffix = ordinal > 1 ? `.${ordinal}` : "";
   return `Evidence ${evidence.label} ${base}${suffix}`;
 }
-
 function evidenceRangesFor(contextId) {
-  const ranges = [];
-  currentAnnotation().claims.forEach((claim) => {
-    claim.evidences.forEach((evidence) => {
-      if (evidence.contextId === contextId) {
-        ranges.push({
-          ...evidence,
-          tag: evidenceTag(claim, evidence),
+  const annotation = currentAnnotation();
+  const evidenceRanges = [];
+  annotation.claims.forEach((claim) => {
+    const colorRgb = PALETTE[(claim.colorIndex || 0) % PALETTE.length];
+    claim.evidences.forEach((ev) => {
+      if (ev.contextId === contextId) {
+        evidenceRanges.push({
+          start: ev.start,
+          end: ev.end,
+          label: ev.label,
+          id: ev.id,
           claimId: claim.id,
+          tag: evidenceTag(claim, ev),
+          colorRgb: colorRgb,
         });
       }
     });
   });
-  return ranges;
+  return evidenceRanges;
 }
-
 function rangesOverlap(a, b) {
   return a.start < b.end && b.start < a.end;
 }
-
 function renderContext(contextId) {
   const row = currentRow();
   const target = contextId === "A" ? els.contextA : els.contextB;
@@ -288,79 +307,75 @@ function renderContext(contextId) {
   const entityRanges = row?.entityRanges?.[contextId] || [];
   const evidenceRanges = evidenceRangesFor(contextId);
   const boundaries = new Set([0, text.length]);
-
   [...entityRanges, ...evidenceRanges].forEach((range) => {
     boundaries.add(Math.max(0, Math.min(text.length, range.start)));
     boundaries.add(Math.max(0, Math.min(text.length, range.end)));
   });
-
   const points = [...boundaries].sort((a, b) => a - b);
   target.textContent = "";
-
   for (let i = 0; i < points.length - 1; i += 1) {
     const start = points[i];
     const end = points[i + 1];
     if (end <= start) continue;
-
     const segment = text.slice(start, end);
     const activeEntities = entityRanges.filter((range) => rangesOverlap(range, { start, end }));
     const activeEvidence = evidenceRanges.filter((range) => rangesOverlap(range, { start, end }));
-
     if (!activeEntities.length && !activeEvidence.length) {
       target.append(document.createTextNode(segment));
       continue;
     }
-
     const span = document.createElement("span");
     span.textContent = segment;
-    if (activeEntities.length) span.classList.add("entity-hit");
+    
+    span.dataset.hasEntity = activeEntities.length > 0 ? "true" : "false";
     if (activeEvidence.length) {
-      const primaryEvidence = activeEvidence[activeEvidence.length - 1];
-      span.classList.add("evidence-hit", `ev-${primaryEvidence.label.toLowerCase()}`);
+      span.classList.add("evidence-hit");
+      span.dataset.evidences = JSON.stringify(activeEvidence.map(e => ({
+        id: e.id, 
+        claimId: e.claimId, 
+        label: e.label, 
+        colorRgb: e.colorRgb
+      })));
+    }
+    if (activeEntities.length) {
+      span.classList.add("entity-hit");
+    }
+    span.style.background = getSpanBackground(activeEvidence, activeEntities.length > 0);
+    if (activeEvidence.length) {
       const ending = activeEvidence.filter((range) => range.end === end);
       if (ending.length) {
         span.classList.add("evidence-end");
-        span.dataset.tag = ending.map((range) => range.tag).join(" ");
+        span.dataset.endingEvIds = JSON.stringify(ending.map((e) => e.id));
+        
+        ending.forEach((range) => {
+          const tagNode = document.createElement("span");
+          tagNode.className = "evidence-tag";
+          tagNode.textContent = range.tag;
+          tagNode.dataset.evId = range.id;
+          tagNode.dataset.claimId = range.claimId;
+          span.appendChild(tagNode);
+        });
       }
     }
+    
     target.append(span);
   }
 }
-
-function renderClaimOptions() {
-  const claims = currentAnnotation().claims;
-  els.claimTarget.textContent = "";
-
-  if (!claims.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "Chưa có claim";
-    els.claimTarget.append(option);
-    return;
-  }
-
-  claims.forEach((claim, index) => {
-    const option = document.createElement("option");
-    option.value = claim.id;
-    option.textContent = `Câu ${claim.label} ${claimOrdinal(claim) || index + 1}`;
-    els.claimTarget.append(option);
-  });
-}
-
 function renderClaims() {
   const annotation = currentAnnotation();
   els.claimsList.textContent = "";
-
   if (!annotation.claims.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = "Chưa có claim";
     els.claimsList.append(empty);
-    renderClaimOptions();
     return;
   }
-
-  annotation.claims.forEach((claim) => {
+  annotation.claims.forEach((claim, index) => {
+    if (typeof claim.colorIndex !== 'number') {
+      claim.colorIndex = index;
+    }
+    const colorRgb = PALETTE[claim.colorIndex % PALETTE.length];
     const fragment = els.claimTemplate.content.cloneNode(true);
     const card = fragment.querySelector(".claim-card");
     const title = fragment.querySelector(".claim-title");
@@ -368,12 +383,37 @@ function renderClaims() {
     const text = fragment.querySelector(".claim-text");
     const deleteBtn = fragment.querySelector(".delete-claim");
     const evidenceBox = fragment.querySelector(".claim-evidence");
-
+    const addEvBtn = fragment.querySelector(".add-evidence-to-claim");
+    card.addEventListener('mouseenter', () => {
+      window.hoveredClaimId = claim.id;
+      updateEvidenceHighlights();
+    });
+    card.addEventListener('mouseleave', () => {
+      window.hoveredClaimId = null;
+      updateEvidenceHighlights();
+    });
+    addEvBtn.addEventListener("click", () => {
+      const selectionRange = state.selectedRange;
+      if (!selectionRange) return;
+      claim.evidences.push({
+        id: uid("ev"),
+        label: claim.label,
+        contextId: selectionRange.contextId,
+        start: selectionRange.start,
+        end: selectionRange.end,
+        text: selectionRange.text,
+        createdAt: new Date().toISOString(),
+      });
+      saveAnnotations();
+      window.getSelection()?.removeAllRanges();
+      updateSelection(null);
+      renderAll();
+    });
     card.dataset.label = claim.label;
+    card.style.borderLeftColor = `rgb(${colorRgb})`;
     title.textContent = `Câu ${claim.label} ${claimOrdinal(claim)}`;
     label.value = claim.label;
     text.value = claim.text || "";
-
     label.addEventListener("change", () => {
       claim.label = label.value;
       claim.evidences.forEach((evidence) => {
@@ -382,64 +422,77 @@ function renderClaims() {
       saveAnnotations();
       renderAll();
     });
-
     text.addEventListener("input", () => {
       claim.text = text.value;
       saveAnnotations();
     });
-
     deleteBtn.addEventListener("click", () => {
       annotation.claims = annotation.claims.filter((item) => item.id !== claim.id);
       saveAnnotations();
       renderAll();
     });
-
     if (!claim.evidences.length) {
       const empty = document.createElement("div");
-      empty.className = "empty-state";
+      empty.className = "empty-evidence";
       empty.textContent = "Chưa có evidence";
       evidenceBox.append(empty);
     } else {
-      claim.evidences.forEach((evidence) => {
-        const chip = document.createElement("div");
-        chip.className = "evidence-chip";
-        chip.dataset.label = evidence.label;
-
-        const tag = document.createElement("strong");
-        tag.textContent = evidenceTag(claim, evidence);
-
-        const body = document.createElement("span");
-        body.textContent = `${evidence.contextId}: ${evidence.text}`;
-
-        const remove = document.createElement("button");
-        remove.className = "remove-evidence";
-        remove.type = "button";
-        remove.textContent = "×";
-        remove.setAttribute("aria-label", "Xoa evidence");
-        remove.addEventListener("click", () => {
-          claim.evidences = claim.evidences.filter((item) => item.id !== evidence.id);
-          saveAnnotations();
-          renderAll();
+      const evA = claim.evidences.filter(e => e.contextId === "A");
+      const evB = claim.evidences.filter(e => e.contextId === "B");
+      const renderGroup = (evList, title) => {
+        if (!evList.length) return;
+        const group = document.createElement("div");
+        group.className = "evidence-group";
+        const groupTitle = document.createElement("div");
+        groupTitle.className = "evidence-group-title";
+        groupTitle.textContent = title;
+        const groupChips = document.createElement("div");
+        groupChips.className = "evidence-group-chips";
+        
+        evList.forEach((evidence) => {
+          const chip = document.createElement("div");
+          chip.className = "evidence-chip";
+          chip.style.borderColor = `rgb(${colorRgb})`;
+          chip.dataset.label = evidence.label;
+          chip.addEventListener('mouseenter', () => {
+            window.hoveredEvidenceId = evidence.id;
+            updateEvidenceHighlights();
+          });
+          chip.addEventListener('mouseleave', () => {
+            window.hoveredEvidenceId = null;
+            updateEvidenceHighlights();
+          });
+          const tag = document.createElement("strong");
+          tag.textContent = evidenceTag(claim, evidence);
+          const remove = document.createElement("button");
+          remove.className = "remove-evidence";
+          remove.type = "button";
+          remove.textContent = "×";
+          remove.setAttribute("aria-label", "Xoa evidence");
+          remove.addEventListener("click", () => {
+            claim.evidences = claim.evidences.filter((item) => item.id !== evidence.id);
+            window.hoveredEvidenceId = null;
+            saveAnnotations();
+            renderAll();
+          });
+          chip.append(tag, remove);
+          groupChips.append(chip);
         });
-
-        chip.append(tag, body, remove);
-        evidenceBox.append(chip);
-      });
+        group.append(groupTitle, groupChips);
+        evidenceBox.append(group);
+      };
+      renderGroup(evA, "Context A");
+      renderGroup(evB, "Context B");
     }
-
     els.claimsList.append(fragment);
   });
-
-  renderClaimOptions();
 }
-
 function renderSample() {
   const row = currentRow();
   if (!row) {
     els.sampleMeta.textContent = "Không có dữ liệu";
     return;
   }
-
   const annotation = currentAnnotation();
   const evidenceCount = annotation.claims.reduce((sum, claim) => sum + claim.evidences.length, 0);
   els.sampleMeta.textContent = `Sample ${state.currentIndex + 1}/${state.rows.length} · row ${row.__rowNumber} · ${row.status || "-"}`;
@@ -448,16 +501,12 @@ function renderSample() {
   els.sampleCount.textContent = `/ ${state.rows.length}`;
   els.prevBtn.disabled = state.currentIndex <= 0;
   els.nextBtn.disabled = state.currentIndex >= state.rows.length - 1;
-
   els.bridgeEntity.textContent = row.bridge_entity || "-";
   els.bridgeType.textContent = row.bridge_type ? `(${row.bridge_type})` : "";
   els.subjectEntity.textContent = row.subject_entity || "-";
   els.subjectType.textContent = row.subject_type ? `(${row.subject_type})` : "";
-  els.multiHopQuestion.textContent = row.hop?.multi_hop_question || row.sub?.sub_questions?.sub_question_a || "-";
-  els.multiHopAnswer.textContent = row.hop?.answer || row.sub?.sub_questions?.answer_b || "-";
   els.contextAStats.textContent = `${wordCount(row.contextA)} từ`;
   els.contextBStats.textContent = `${wordCount(row.contextB)} từ · rank ${row.rank || "-"}`;
-
   renderContext("A");
   renderContext("B");
   renderClaims();
@@ -466,16 +515,13 @@ function renderSample() {
   els.exportCsvBtn.disabled = !Object.keys(state.annotations).length;
   document.title = `MH Labeler · ${annotation.claims.length} claims · ${evidenceCount} evidence`;
 }
-
 function renderAll() {
   renderSample();
 }
-
 function applyFilters() {
   const status = els.statusFilter.value;
   const query = normalizeForFind(els.searchInput.value.trim());
   const previousKey = currentRow()?.key;
-
   state.rows = state.allRows.filter((row) => {
     const statusMatch =
       status === "ALL" ||
@@ -494,17 +540,16 @@ function applyFilters() {
     );
     return haystack.includes(query);
   });
-
   const nextIndex = state.rows.findIndex((row) => row.key === previousKey);
   state.currentIndex = nextIndex >= 0 ? nextIndex : 0;
   renderAll();
 }
-
 function addClaim(label) {
   const annotation = currentAnnotation();
   annotation.claims.push({
     id: uid("claim"),
     label,
+    colorIndex: annotation.claims.length % 10,
     text: "",
     evidences: [],
     createdAt: new Date().toISOString(),
@@ -512,7 +557,6 @@ function addClaim(label) {
   saveAnnotations();
   renderAll();
 }
-
 function getContextFromSelection(selection) {
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
   const range = selection.getRangeAt(0);
@@ -529,21 +573,17 @@ function getContextFromSelection(selection) {
   if (!startContext || !endContext || startContext !== endContext) return null;
   return startContext;
 }
-
 function selectedOffsets(container, range) {
   const preStart = document.createRange();
   preStart.selectNodeContents(container);
   preStart.setEnd(range.startContainer, range.startOffset);
   const start = preStart.toString().length;
-
   const preEnd = document.createRange();
   preEnd.selectNodeContents(container);
   preEnd.setEnd(range.endContainer, range.endOffset);
   const end = preEnd.toString().length;
-
   return start < end ? { start, end } : { start: end, end: start };
 }
-
 function readSelection() {
   const selection = window.getSelection();
   const container = getContextFromSelection(selection);
@@ -562,42 +602,9 @@ function readSelection() {
     text: selectedText,
   };
 }
-
 function updateSelection(selectionRange = readSelection()) {
   state.selectedRange = selectionRange;
-  if (!selectionRange) {
-    els.selectionState.textContent = "Chưa chọn đoạn";
-    els.selectedText.textContent = "";
-    els.addEvidenceBtn.disabled = true;
-    return;
-  }
-
-  els.selectionState.textContent = `Context ${selectionRange.contextId} · ${selectionRange.end - selectionRange.start} ký tự`;
-  els.selectedText.textContent = selectionRange.text;
-  els.addEvidenceBtn.disabled = !currentAnnotation().claims.length;
 }
-
-function addEvidenceFromSelection() {
-  const selectionRange = state.selectedRange || readSelection();
-  const annotation = currentAnnotation();
-  const claim = annotation.claims.find((item) => item.id === els.claimTarget.value);
-  if (!selectionRange || !claim) return;
-
-  const label = els.evidenceLabel.value || claim.label;
-  claim.evidences.push({
-    id: uid("ev"),
-    label,
-    contextId: selectionRange.contextId,
-    start: selectionRange.start,
-    end: selectionRange.end,
-    text: selectionRange.text,
-    createdAt: new Date().toISOString(),
-  });
-  saveAnnotations();
-  window.getSelection()?.removeAllRanges();
-  renderAll();
-}
-
 function downloadFile(filename, content, type) {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -609,7 +616,6 @@ function downloadFile(filename, content, type) {
   anchor.remove();
   URL.revokeObjectURL(url);
 }
-
 function exportJson() {
   const payload = {
     source: state.sourceName,
@@ -618,12 +624,10 @@ function exportJson() {
   };
   downloadFile("multihop_annotations.json", JSON.stringify(payload, null, 2), "application/json");
 }
-
 function csvCell(value) {
   const text = value == null ? "" : String(value);
   return `"${text.replace(/"/g, '""')}"`;
 }
-
 function exportCsv() {
   const rows = [
     [
@@ -643,7 +647,6 @@ function exportCsv() {
       "evidence_text",
     ],
   ];
-
   state.allRows.forEach((row) => {
     const annotation = state.annotations[row.key];
     if (!annotation) return;
@@ -667,7 +670,6 @@ function exportCsv() {
         ]);
         return;
       }
-
       claim.evidences.forEach((evidence) => {
         rows.push([
           row.key,
@@ -688,10 +690,8 @@ function exportCsv() {
       });
     });
   });
-
   downloadFile("multihop_annotations.csv", rows.map((row) => row.map(csvCell).join(",")).join("\n"), "text/csv");
 }
-
 async function loadCsvText(text, name = "data.sample.csv") {
   state.sourceName = name;
   state.allRows = parseCsv(text);
@@ -700,7 +700,6 @@ async function loadCsvText(text, name = "data.sample.csv") {
   loadAnnotations();
   applyFilters();
 }
-
 async function loadDefaultCsv() {
   try {
     const response = await fetch("./data.sample.csv");
@@ -713,52 +712,35 @@ async function loadDefaultCsv() {
     renderAll();
   }
 }
-
 els.csvInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
   await loadCsvText(await file.text(), file.name);
 });
-
 els.exportJsonBtn.addEventListener("click", exportJson);
 els.exportCsvBtn.addEventListener("click", exportCsv);
-
 els.prevBtn.addEventListener("click", () => {
   state.currentIndex = Math.max(0, state.currentIndex - 1);
   renderAll();
 });
-
 els.nextBtn.addEventListener("click", () => {
   state.currentIndex = Math.min(state.rows.length - 1, state.currentIndex + 1);
   renderAll();
 });
-
 els.sampleIndex.addEventListener("change", () => {
   const target = Number.parseInt(els.sampleIndex.value, 10);
   if (!Number.isFinite(target)) return;
   state.currentIndex = Math.max(0, Math.min(state.rows.length - 1, target - 1));
   renderAll();
 });
-
 els.statusFilter.addEventListener("change", applyFilters);
 els.searchInput.addEventListener("input", applyFilters);
-
 document.querySelectorAll("[data-add-claim]").forEach((button) => {
   button.addEventListener("click", () => addClaim(button.dataset.addClaim));
 });
-
-els.claimTarget.addEventListener("change", () => {
-  const claim = currentAnnotation().claims.find((item) => item.id === els.claimTarget.value);
-  if (claim) els.evidenceLabel.value = claim.label;
-});
-
-els.addEvidenceBtn.addEventListener("click", addEvidenceFromSelection);
-
 ["mouseup", "keyup", "selectionchange"].forEach((eventName) => {
   document.addEventListener(eventName, () => {
     window.requestAnimationFrame(() => updateSelection());
   });
 });
-
 loadDefaultCsv();
-

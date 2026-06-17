@@ -25,7 +25,6 @@
           <button id="exportCsvBtn" type="button">Export CSV</button>
         </div>
       </header>
-
       <main class="workspace">
         <section class="left-pane">
           <div class="sample-toolbar">
@@ -42,7 +41,6 @@
             </select>
             <input id="searchInput" type="search" placeholder="Tìm entity, claim, context" />
           </div>
-
           <section class="sample-brief">
             <div>
               <span class="brief-label">Bridge</span>
@@ -54,16 +52,7 @@
               <strong id="subjectEntity">-</strong>
               <span id="subjectType"></span>
             </div>
-            <div>
-              <span class="brief-label">Question</span>
-              <span id="multiHopQuestion">-</span>
-            </div>
-            <div>
-              <span class="brief-label">Answer</span>
-              <span id="multiHopAnswer">-</span>
-            </div>
           </section>
-
           <div class="context-stack">
             <article class="context-card">
               <div class="context-head">
@@ -72,7 +61,6 @@
               </div>
               <div id="contextA" class="context-body" data-context="A"></div>
             </article>
-
             <article class="context-card">
               <div class="context-head">
                 <h2>Context B</h2>
@@ -82,31 +70,7 @@
             </article>
           </div>
         </section>
-
         <aside class="right-pane">
-          <section class="evidence-panel">
-            <div class="panel-head">
-              <h2>Evidence</h2>
-              <span id="selectionState">Chưa chọn đoạn</span>
-            </div>
-            <div class="selected-text" id="selectedText"></div>
-            <div class="control-grid">
-              <label>
-                Label
-                <select id="evidenceLabel">
-                  <option value="SUP">SUP</option>
-                  <option value="REFUTE">REFUTE</option>
-                  <option value="NEI">NEI</option>
-                </select>
-              </label>
-              <label>
-                Claim
-                <select id="claimTarget"></select>
-              </label>
-            </div>
-            <button id="addEvidenceBtn" class="primary" type="button">Gắn evidence</button>
-          </section>
-
           <section class="claims-panel">
             <div class="panel-head">
               <h2>Claims</h2>
@@ -121,12 +85,12 @@
         </aside>
       </main>
     </div>
-
     <template id="claimTemplate">
       <article class="claim-card">
         <div class="claim-head">
           <span class="claim-title"></span>
           <div class="claim-actions">
+            <button class="add-evidence-to-claim primary" type="button" title="Gắn đoạn đang bôi vào claim này">+ Evidence</button>
             <select class="claim-label">
               <option value="SUP">SUP</option>
               <option value="REFUTE">REFUTE</option>
@@ -139,7 +103,6 @@
         <div class="claim-evidence"></div>
       </article>
     </template>
-
     <script src="./app.js"></script>
   </body>
 </html>
