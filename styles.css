@@ -23,6 +23,7 @@
   --radius-sm: 6px;
   --radius-md: 12px;
   --radius-lg: 16px;
+  --claims-width: 400px;
 }
 * {
   box-sizing: border-box;
@@ -166,12 +167,12 @@ button:disabled {
 }
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 400px;
+  grid-template-columns: minmax(0, 1fr) var(--claims-width, 400px);
   gap: 20px;
   padding: 20px;
   min-height: 0;
   flex: 1;
-  max-width: 1600px;
+  max-width: 100%;
   width: 100%;
   margin: 0 auto;
   height: calc(100vh - 69px);
@@ -608,18 +609,58 @@ button:disabled {
   background: var(--surface-soft);
   font-size: 13px;
 }
-@media (max-width: 1060px) {
+@media (max-width: 1400px) {
+  :root {
+    --claims-width: 350px;
+  }
+}
+@media (max-width: 1200px) {
+  :root {
+    --claims-width: 300px;
+  }
+  .workspace {
+    gap: 12px;
+    padding: 12px;
+  }
+  .context-stack {
+    gap: 12px;
+  }
+}
+@media (max-width: 900px) {
+  body {
+    height: auto;
+    overflow: auto;
+  }
+  .app-shell {
+    height: auto;
+    overflow: auto;
+  }
   .workspace {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
+    gap: 16px;
+    padding: 16px;
+  }
+  .left-pane {
+    height: auto;
+    overflow: visible;
   }
   .right-pane {
-    grid-template-columns: 1fr;
-  }
-  .evidence-panel {
-    position: static;
+    height: auto;
+    overflow: visible;
   }
   .context-stack {
     grid-template-columns: 1fr;
+    height: auto;
+    gap: 16px;
+  }
+  .context-card {
+    height: auto;
+  }
+  .context-body {
+    height: auto;
+    max-height: 400px;
   }
 }
 @media (max-width: 760px) {
