@@ -104,6 +104,10 @@ const els = {
   statSkipCount: document.getElementById("statSkipCount"),
   statEditCount: document.getElementById("statEditCount"),
   chartContainer: document.getElementById("chartContainer"),
+  evidenceModal: document.getElementById("evidenceModal"),
+  closeEvidenceBtn: document.getElementById("closeEvidenceBtn"),
+  evidenceModalTitle: document.getElementById("evidenceModalTitle"),
+  evidenceModalContent: document.getElementById("evidenceModalContent"),
 };
 function uid(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -606,6 +610,47 @@ function renderClaims() {
             window.hoveredEvidenceId = null;
             updateEvidenceHighlights();
           });
+          
+          chip.addEventListener('click', (e) => {
+            if (e.target.classList.contains("remove-evidence")) return;
+            
+            els.evidenceModalTitle.textContent = `Chi tiết Evidence - Câu ${claim.label} ${claimOrdinal(claim)}`;
+            els.evidenceModalContent.innerHTML = "";
+            
+            claim.evidences.forEach((ev) => {
+              const item = document.createElement("div");
+              item.className = "evidence-modal-item";
+              item.style.borderLeft = `4px solid rgb(${colorRgb})`;
+              
+              const tag = document.createElement("div");
+              tag.className = "evidence-modal-item-tag";
+              tag.style.color = `rgb(${colorRgb})`;
+              tag.textContent = evidenceTag(claim, ev) + ` (Context ${ev.contextId})`;
+              
+              const text = document.createElement("div");
+              text.className = "evidence-modal-item-text";
+              text.textContent = ev.text;
+              
+              item.append(tag, text);
+              
+              if (ev.id === evidence.id) {
+                 item.style.backgroundColor = `rgba(${colorRgb}, 0.1)`;
+              }
+              
+              els.evidenceModalContent.append(item);
+            });
+            
+            els.evidenceModal.style.display = "flex";
+            
+            setTimeout(() => {
+              const activeIndex = claim.evidences.findIndex(e => e.id === evidence.id);
+              const activeItem = els.evidenceModalContent.children[activeIndex];
+              if (activeItem) {
+                 activeItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }, 50);
+          });
+          
           const tag = document.createElement("strong");
           tag.textContent = evidenceTag(claim, evidence);
           const remove = document.createElement("button");
@@ -955,13 +1000,17 @@ if (els.rowStatusSelect) {
 }
 if (els.showStatsBtn) els.showStatsBtn.addEventListener("click", showStatsModal);
 if (els.closeStatsBtn) els.closeStatsBtn.addEventListener("click", hideStatsModal);
-if (els.statsModal) {
-  els.statsModal.addEventListener("click", (e) => {
-    if (e.target === els.statsModal) {
-      hideStatsModal();
-    }
-  });
-}
+els.closeEvidenceBtn?.addEventListener("click", () => {
+  els.evidenceModal.style.display = "none";
+});
+window.addEventListener("click", (e) => {
+  if (e.target === els.statsModal) {
+    hideStatsModal();
+  }
+  if (e.target === els.evidenceModal) {
+    els.evidenceModal.style.display = "none";
+  }
+});
 document.querySelectorAll("[data-add-claim]").forEach((button) => {
   button.addEventListener("click", () => addClaim(button.dataset.addClaim));
 });

@@ -959,10 +959,44 @@ button:disabled {
 .chart-bar-fill.sup-fill {
   background: var(--sup-border);
 }
-.chart-bar-fill.refute-fill {
-  background: var(--refute-border);
-}
-.chart-bar-fill.nei-fill {
-  background: var(--nei-border);
-}
+.chart-bar-fill.refute-fill { background: var(--refute-border); }
+.chart-bar-fill.nei-fill { background: var(--nei-border); }
 
+/* Evidence Modal Styles */
+.evidence-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.evidence-modal-item {
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  line-height: 1.6;
+  transition: background-color 0.2s ease;
+}
+.evidence-modal-item-tag {
+  font-weight: 700;
+  margin-bottom: 6px;
+  font-size: 13px;
+  display: inline-block;
+}
+.evidence-modal-item-text {
+  color: var(--text);
+  white-space: pre-wrap;
+  font-size: 14px;
+}
+.evidence-chip {
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.evidence-chip:hover {
+  transform: translateY(-1px);
+}
+.evidence-chip:active {
+  transform: translateY(0);
+}
