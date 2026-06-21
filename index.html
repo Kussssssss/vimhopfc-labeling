@@ -4,6 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Multi-hop Fact-checking Labeler</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -23,6 +26,7 @@
           </label>
           <button id="exportJsonBtn" type="button">Export JSON</button>
           <button id="exportCsvBtn" type="button">Export CSV</button>
+          <button id="showStatsBtn" type="button">📊 Thống kê</button>
         </div>
       </header>
       <main class="workspace">
@@ -42,15 +46,30 @@
             <input id="searchInput" type="search" placeholder="Tìm entity, claim, context" />
           </div>
           <section class="sample-brief">
-            <div>
-              <span class="brief-label">Bridge</span>
-              <strong id="bridgeEntity">-</strong>
-              <span id="bridgeType"></span>
+            <div class="brief-col">
+              <span class="brief-label">Bridge Entity</span>
+              <div class="entity-info-card">
+                <strong id="bridgeEntity">-</strong>
+                <span id="bridgeType" class="entity-type"></span>
+              </div>
             </div>
-            <div>
-              <span class="brief-label">Subject</span>
-              <strong id="subjectEntity">-</strong>
-              <span id="subjectType"></span>
+            <div class="brief-col">
+              <span class="brief-label">Subject Entity</span>
+              <div class="entity-info-card">
+                <strong id="subjectEntity">-</strong>
+                <span id="subjectType" class="entity-type"></span>
+              </div>
+            </div>
+            <div class="brief-col">
+              <span class="brief-label">Trạng thái gắn nhãn</span>
+              <div class="entity-info-card">
+                <select id="rowStatusSelect" class="status-select">
+                  <option value="TODO">⏳ Chưa làm</option>
+                  <option value="DONE">✅ Đã hoàn thành</option>
+                  <option value="SKIP">🚫 Bỏ qua</option>
+                  <option value="EDIT">⚠️ Cần chỉnh sửa</option>
+                </select>
+              </div>
             </div>
           </section>
           <div class="context-stack">
@@ -99,10 +118,73 @@
             <button class="delete-claim" type="button" aria-label="Xóa claim">×</button>
           </div>
         </div>
-        <textarea class="claim-text" rows="3" placeholder="Viết claim..."></textarea>
+        <div class="textarea-wrapper">
+          <textarea class="claim-text" rows="3" placeholder="Viết claim..."></textarea>
+          <button class="edit-claim-btn" type="button" title="Chỉnh sửa lại claim">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+            </svg>
+          </button>
+        </div>
         <div class="claim-evidence"></div>
+        <div class="claim-footer">
+          <button class="lock-claim-btn primary" type="button">Add</button>
+        </div>
       </article>
     </template>
+    <!-- Modal Thống kê -->
+    <div id="statsModal" class="modal-backdrop" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2>📊 Tiến độ gắn nhãn</h2>
+          <button id="closeStatsBtn" class="close-modal-btn" type="button">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="progress-section">
+            <div class="progress-labels">
+              <span>Đã hoàn thành</span>
+              <span id="statsPercent">0%</span>
+            </div>
+            <div class="progress-bar-container">
+              <div id="statsProgressBar" class="progress-bar-fill" style="width: 0%;"></div>
+            </div>
+            <p id="statsProgressText" class="progress-subtext">0 / 0 bài</p>
+          </div>
+          
+          <div class="stats-grid">
+            <div class="stat-box todo">
+              <div class="stat-icon">⏳</div>
+              <div class="stat-info">
+                <span class="stat-count" id="statTodoCount">0</span>
+                <span class="stat-label">Cần gắn nhãn</span>
+              </div>
+            </div>
+            <div class="stat-box done">
+              <div class="stat-icon">✅</div>
+              <div class="stat-info">
+                <span class="stat-count" id="statDoneCount">0</span>
+                <span class="stat-label">Đã hoàn thành</span>
+              </div>
+            </div>
+            <div class="stat-box skip">
+              <div class="stat-icon">🚫</div>
+              <div class="stat-info">
+                <span class="stat-count" id="statSkipCount">0</span>
+                <span class="stat-label">Đã bỏ qua</span>
+              </div>
+            </div>
+            <div class="stat-box edit">
+              <div class="stat-icon">⚠️</div>
+              <div class="stat-info">
+                <span class="stat-count" id="statEditCount">0</span>
+                <span class="stat-label">Cần chỉnh sửa</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script src="./app.js"></script>
   </body>
 </html>

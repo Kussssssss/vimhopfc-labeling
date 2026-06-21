@@ -90,6 +90,17 @@ const els = {
   contextBStats: document.getElementById("contextBStats"),
   claimsList: document.getElementById("claimsList"),
   claimTemplate: document.getElementById("claimTemplate"),
+  rowStatusSelect: document.getElementById("rowStatusSelect"),
+  showStatsBtn: document.getElementById("showStatsBtn"),
+  statsModal: document.getElementById("statsModal"),
+  closeStatsBtn: document.getElementById("closeStatsBtn"),
+  statsPercent: document.getElementById("statsPercent"),
+  statsProgressBar: document.getElementById("statsProgressBar"),
+  statsProgressText: document.getElementById("statsProgressText"),
+  statTodoCount: document.getElementById("statTodoCount"),
+  statDoneCount: document.getElementById("statDoneCount"),
+  statSkipCount: document.getElementById("statSkipCount"),
+  statEditCount: document.getElementById("statEditCount"),
 };
 function uid(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -219,8 +230,10 @@ function addEntityRanges(text, entityTexts, existingRanges) {
 function normalizeRow(row) {
   const sub = safeJson(row.sub_question_result);
   const hop = safeJson(row.multi_hop_result);
-  const markedA = extractMarkedRanges(row.bridge_content || "");
-  const markedB = extractMarkedRanges(row.subject_content || "");
+  const contentA = row.bridge_content || sub?.analysis?.document_a_segments || "";
+  const contentB = row.subject_content || sub?.analysis?.document_b_segments || row.segment_text || "";
+  const markedA = extractMarkedRanges(contentA);
+  const markedB = extractMarkedRanges(contentB);
   const contextA = markedA.clean || "";
   const contextB = markedB.clean || "";
   const entityTexts = [
@@ -252,11 +265,49 @@ function normalizeRow(row) {
 function currentRow() {
   return state.rows[state.currentIndex] || null;
 }
+function calculateStats() {
+  let total = state.allRows.length;
+  let todo = 0;
+  let done = 0;
+  let skip = 0;
+  let edit = 0;
+
+  state.allRows.forEach(row => {
+    const ann = state.annotations[row.key];
+    const status = ann?.status || (ann?.claims && ann.claims.length > 0 ? "DONE" : "TODO");
+    if (status === "DONE") done++;
+    else if (status === "SKIP") skip++;
+    else if (status === "EDIT") edit++;
+    else todo++;
+  });
+
+  return { total, todo, done, skip, edit };
+}
+function showStatsModal() {
+  const stats = calculateStats();
+  const percent = stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0;
+  
+  if (els.statsPercent) els.statsPercent.textContent = `${percent}%`;
+  if (els.statsProgressBar) els.statsProgressBar.style.width = `${percent}%`;
+  if (els.statsProgressText) els.statsProgressText.textContent = `${stats.done} / ${stats.total} bài`;
+  
+  if (els.statTodoCount) els.statTodoCount.textContent = stats.todo;
+  if (els.statDoneCount) els.statDoneCount.textContent = stats.done;
+  if (els.statSkipCount) els.statSkipCount.textContent = stats.skip;
+  if (els.statEditCount) els.statEditCount.textContent = stats.edit;
+
+  if (els.statsModal) els.statsModal.style.display = "flex";
+}
+function hideStatsModal() {
+  if (els.statsModal) els.statsModal.style.display = "none";
+}
 function currentAnnotation() {
   const row = currentRow();
-  if (!row) return { claims: [] };
+  if (!row) return { claims: [], status: "TODO" };
   if (!state.annotations[row.key]) {
-    state.annotations[row.key] = { claims: [] };
+    state.annotations[row.key] = { claims: [], status: "TODO" };
+  } else if (!state.annotations[row.key].status) {
+    state.annotations[row.key].status = state.annotations[row.key].claims.length > 0 ? "DONE" : "TODO";
   }
   return state.annotations[row.key];
 }
@@ -384,6 +435,42 @@ function renderClaims() {
     const deleteBtn = fragment.querySelector(".delete-claim");
     const evidenceBox = fragment.querySelector(".claim-evidence");
     const addEvBtn = fragment.querySelector(".add-evidence-to-claim");
+    const lockBtn = fragment.querySelector(".lock-claim-btn");
+    const editBtn = fragment.querySelector(".edit-claim-btn");
+
+    const isLocked = !!claim.locked;
+    text.disabled = isLocked;
+    label.disabled = isLocked;
+    deleteBtn.disabled = isLocked;
+    
+    if (isLocked) {
+      addEvBtn.style.display = "none";
+      if (lockBtn) lockBtn.style.display = "none";
+      if (editBtn) editBtn.style.display = "flex";
+      card.classList.add("locked");
+    } else {
+      addEvBtn.style.display = "inline-flex";
+      if (lockBtn) lockBtn.style.display = "inline-flex";
+      if (editBtn) editBtn.style.display = "none";
+      card.classList.remove("locked");
+    }
+
+    if (lockBtn) {
+      lockBtn.addEventListener("click", () => {
+        claim.locked = true;
+        saveAnnotations();
+        renderAll();
+      });
+    }
+
+    if (editBtn) {
+      editBtn.addEventListener("click", () => {
+        claim.locked = false;
+        saveAnnotations();
+        renderAll();
+      });
+    }
+
     card.addEventListener('mouseenter', () => {
       window.hoveredClaimId = claim.id;
       updateEvidenceHighlights();
@@ -469,6 +556,9 @@ function renderClaims() {
           remove.type = "button";
           remove.textContent = "×";
           remove.setAttribute("aria-label", "Xoa evidence");
+          if (isLocked) {
+            remove.style.display = "none";
+          }
           remove.addEventListener("click", () => {
             claim.evidences = claim.evidences.filter((item) => item.id !== evidence.id);
             window.hoveredEvidenceId = null;
@@ -505,6 +595,9 @@ function renderSample() {
   els.bridgeType.textContent = row.bridge_type ? `(${row.bridge_type})` : "";
   els.subjectEntity.textContent = row.subject_entity || "-";
   els.subjectType.textContent = row.subject_type ? `(${row.subject_type})` : "";
+  if (els.rowStatusSelect) {
+    els.rowStatusSelect.value = annotation.status || "TODO";
+  }
   els.contextAStats.textContent = `${wordCount(row.contextA)} từ`;
   els.contextBStats.textContent = `${wordCount(row.contextB)} từ · rank ${row.rank || "-"}`;
   renderContext("A");
@@ -554,6 +647,9 @@ function addClaim(label) {
     evidences: [],
     createdAt: new Date().toISOString(),
   });
+  if (annotation.status === "TODO" || !annotation.status) {
+    annotation.status = "DONE";
+  }
   saveAnnotations();
   renderAll();
 }
@@ -735,6 +831,22 @@ els.sampleIndex.addEventListener("change", () => {
 });
 els.statusFilter.addEventListener("change", applyFilters);
 els.searchInput.addEventListener("input", applyFilters);
+if (els.rowStatusSelect) {
+  els.rowStatusSelect.addEventListener("change", () => {
+    const annotation = currentAnnotation();
+    annotation.status = els.rowStatusSelect.value;
+    saveAnnotations();
+  });
+}
+if (els.showStatsBtn) els.showStatsBtn.addEventListener("click", showStatsModal);
+if (els.closeStatsBtn) els.closeStatsBtn.addEventListener("click", hideStatsModal);
+if (els.statsModal) {
+  els.statsModal.addEventListener("click", (e) => {
+    if (e.target === els.statsModal) {
+      hideStatsModal();
+    }
+  });
+}
 document.querySelectorAll("[data-add-claim]").forEach((button) => {
   button.addEventListener("click", () => addClaim(button.dataset.addClaim));
 });
