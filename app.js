@@ -101,6 +101,7 @@ const els = {
   statDoneCount: document.getElementById("statDoneCount"),
   statSkipCount: document.getElementById("statSkipCount"),
   statEditCount: document.getElementById("statEditCount"),
+  chartContainer: document.getElementById("chartContainer"),
 };
 function uid(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -272,6 +273,12 @@ function calculateStats() {
   let skip = 0;
   let edit = 0;
 
+  let claimsCount = {
+    SUP: 0,
+    REFUTE: 0,
+    NEI: 0
+  };
+
   state.allRows.forEach(row => {
     const ann = state.annotations[row.key];
     const status = ann?.status || (ann?.claims && ann.claims.length > 0 ? "DONE" : "TODO");
@@ -279,9 +286,18 @@ function calculateStats() {
     else if (status === "SKIP") skip++;
     else if (status === "EDIT") edit++;
     else todo++;
+
+    if (ann && ann.claims) {
+      ann.claims.forEach(claim => {
+        const label = String(claim.label || "").toUpperCase();
+        if (claimsCount[label] !== undefined) {
+          claimsCount[label]++;
+        }
+      });
+    }
   });
 
-  return { total, todo, done, skip, edit };
+  return { total, todo, done, skip, edit, claimsCount };
 }
 function showStatsModal() {
   const stats = calculateStats();
@@ -295,6 +311,35 @@ function showStatsModal() {
   if (els.statDoneCount) els.statDoneCount.textContent = stats.done;
   if (els.statSkipCount) els.statSkipCount.textContent = stats.skip;
   if (els.statEditCount) els.statEditCount.textContent = stats.edit;
+
+  if (els.chartContainer) {
+    els.chartContainer.innerHTML = "";
+    const totalClaims = stats.claimsCount.SUP + stats.claimsCount.REFUTE + stats.claimsCount.NEI;
+
+    const labelDefs = [
+      { name: "SUP", count: stats.claimsCount.SUP, color: "var(--sup-border)", fillClass: "sup-fill" },
+      { name: "REFUTE", count: stats.claimsCount.REFUTE, color: "var(--refute-border)", fillClass: "refute-fill" },
+      { name: "NEI", count: stats.claimsCount.NEI, color: "var(--nei-border)", fillClass: "nei-fill" }
+    ];
+
+    labelDefs.forEach(lbl => {
+      const percentage = totalClaims > 0 ? Math.round((lbl.count / totalClaims) * 100) : 0;
+      
+      const chartItem = document.createElement("div");
+      chartItem.className = "chart-item";
+      
+      chartItem.innerHTML = `
+        <div class="chart-item-label">
+          <span class="label-name" style="color: ${lbl.color}; font-weight: 700;">${lbl.name}</span>
+          <span class="label-stats" style="font-weight: 500; font-size: 13px;">${lbl.count} câu (${percentage}%)</span>
+        </div>
+        <div class="chart-bar-bg">
+          <div class="chart-bar-fill ${lbl.fillClass}" style="width: ${percentage}%;"></div>
+        </div>
+      `;
+      els.chartContainer.appendChild(chartItem);
+    });
+  }
 
   if (els.statsModal) els.statsModal.style.display = "flex";
 }
@@ -540,6 +585,8 @@ function renderClaims() {
           const chip = document.createElement("div");
           chip.className = "evidence-chip";
           chip.style.borderColor = `rgb(${colorRgb})`;
+          chip.style.backgroundColor = `rgba(${colorRgb}, 0.08)`;
+          chip.style.color = `rgb(${colorRgb})`;
           chip.dataset.label = evidence.label;
           chip.addEventListener('mouseenter', () => {
             window.hoveredEvidenceId = evidence.id;
