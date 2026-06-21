@@ -38,10 +38,12 @@
               <span id="sampleCount">/ 0</span>
             </div>
             <button id="nextBtn" type="button" aria-label="Mẫu tiếp">›</button>
-            <select id="statusFilter" aria-label="Loc trang thai">
-              <option value="ALL">Tất cả status</option>
-              <option value="OK">OK</option>
-              <option value="FAIL">FAIL</option>
+            <select id="statusFilter" aria-label="Lọc trạng thái gắn nhãn">
+              <option value="ALL">Tất cả trạng thái</option>
+              <option value="TODO">⏳ Chưa làm</option>
+              <option value="DONE">✅ Đã hoàn thành</option>
+              <option value="SKIP">🚫 Bỏ qua</option>
+              <option value="EDIT">⚠️ Cần chỉnh sửa</option>
             </select>
             <input id="searchInput" type="search" placeholder="Tìm entity, claim, context" />
           </div>

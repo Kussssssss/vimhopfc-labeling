@@ -19,10 +19,11 @@ const PALETTE = [
 window.hoveredEvidenceId = null;
 window.hoveredClaimId = null;
 function getSpanBackground(evidences, hasEntity) {
-  let layers = [];
   if (hasEntity) {
-    layers.push(`linear-gradient(var(--entity), var(--entity))`);
+    return `var(--entity)`;
   }
+  
+  let layers = [];
   if (window.hoveredEvidenceId) {
     const hoveredEv = evidences.find(e => e.id === window.hoveredEvidenceId);
     if (hoveredEv) {
@@ -40,6 +41,7 @@ function getSpanBackground(evidences, hasEntity) {
   } else {
     evidences.forEach(e => layers.push(`linear-gradient(rgba(${e.colorRgb}, 0.3), rgba(${e.colorRgb}, 0.3))`));
   }
+  
   return layers.length ? layers.join(", ") : "";
 }
 function updateEvidenceHighlights() {
@@ -437,24 +439,32 @@ function renderContext(contextId) {
       span.classList.add("entity-hit");
     }
     span.style.background = getSpanBackground(activeEvidence, activeEntities.length > 0);
+    target.append(span);
+
     if (activeEvidence.length) {
       const ending = activeEvidence.filter((range) => range.end === end);
       if (ending.length) {
-        span.classList.add("evidence-end");
-        span.dataset.endingEvIds = JSON.stringify(ending.map((e) => e.id));
-        
         ending.forEach((range) => {
+          const wrapper = document.createElement("span");
+          wrapper.className = "evidence-tag-wrapper evidence-hit";
+          wrapper.dataset.hasEntity = "false";
+          wrapper.dataset.evidences = JSON.stringify([{
+            id: range.id, claimId: range.claimId, label: range.label, colorRgb: range.colorRgb
+          }]);
+          wrapper.style.background = getSpanBackground(JSON.parse(wrapper.dataset.evidences), false);
+          
           const tagNode = document.createElement("span");
           tagNode.className = "evidence-tag";
           tagNode.textContent = range.tag;
           tagNode.dataset.evId = range.id;
           tagNode.dataset.claimId = range.claimId;
-          span.appendChild(tagNode);
+          tagNode.style.borderColor = `rgb(${range.colorRgb})`;
+          
+          wrapper.appendChild(tagNode);
+          target.append(wrapper);
         });
       }
     }
-    
-    target.append(span);
   }
 }
 function renderClaims() {
@@ -627,7 +637,23 @@ function renderClaims() {
 function renderSample() {
   const row = currentRow();
   if (!row) {
-    els.sampleMeta.textContent = "Không có dữ liệu";
+    els.sampleMeta.textContent = "Không có dữ liệu phù hợp";
+    els.sampleIndex.value = "0";
+    els.sampleCount.textContent = "/ 0";
+    els.prevBtn.disabled = true;
+    els.nextBtn.disabled = true;
+    els.bridgeEntity.textContent = "-";
+    els.bridgeType.textContent = "";
+    els.subjectEntity.textContent = "-";
+    els.subjectType.textContent = "";
+    if (els.rowStatusSelect) els.rowStatusSelect.value = "TODO";
+    els.contextAStats.textContent = "";
+    els.contextBStats.textContent = "";
+    els.contextA.textContent = "Trống";
+    els.contextB.textContent = "Trống";
+    els.claimsList.textContent = "";
+    updateSelection(null);
+    document.title = `MH Labeler · Trống`;
     return;
   }
   const annotation = currentAnnotation();
@@ -663,9 +689,12 @@ function applyFilters() {
   const query = normalizeForFind(els.searchInput.value.trim());
   const previousKey = currentRow()?.key;
   state.rows = state.allRows.filter((row) => {
-    const statusMatch =
-      status === "ALL" ||
-      (status === "FAIL" ? String(row.status || "").startsWith("FAIL") : row.status === status);
+    let statusMatch = true;
+    if (status !== "ALL") {
+      const ann = state.annotations[row.key];
+      const annStatus = ann?.status || (ann?.claims && ann.claims.length > 0 ? "DONE" : "TODO");
+      statusMatch = annStatus === status;
+    }
     if (!statusMatch) return false;
     if (!query) return true;
     const haystack = normalizeForFind(
@@ -716,15 +745,54 @@ function getContextFromSelection(selection) {
   if (!startContext || !endContext || startContext !== endContext) return null;
   return startContext;
 }
+function getRawOffset(container, targetNode, targetOffset) {
+  let offset = 0;
+  let found = false;
+
+  function traverse(node) {
+    if (found) return;
+    
+    if (node === targetNode) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        offset += targetOffset;
+      } else {
+        for (let i = 0; i < targetOffset; i++) {
+           if (node.childNodes[i]) {
+               function sumLength(n) {
+                  if (n.nodeType === Node.TEXT_NODE) return n.nodeValue.length;
+                  if (n.nodeType === Node.ELEMENT_NODE && (n.classList.contains("evidence-tag") || n.classList.contains("evidence-tag-wrapper"))) return 0;
+                  let sum = 0;
+                  for (let c of n.childNodes) sum += sumLength(c);
+                  return sum;
+               }
+               offset += sumLength(node.childNodes[i]);
+           }
+        }
+      }
+      found = true;
+      return;
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      offset += node.nodeValue.length;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      if (node.classList.contains("evidence-tag-wrapper") || node.classList.contains("evidence-tag")) {
+        return;
+      }
+      for (let i = 0; i < node.childNodes.length; i++) {
+        traverse(node.childNodes[i]);
+        if (found) return;
+      }
+    }
+  }
+
+  traverse(container);
+  return offset;
+}
+
 function selectedOffsets(container, range) {
-  const preStart = document.createRange();
-  preStart.selectNodeContents(container);
-  preStart.setEnd(range.startContainer, range.startOffset);
-  const start = preStart.toString().length;
-  const preEnd = document.createRange();
-  preEnd.selectNodeContents(container);
-  preEnd.setEnd(range.endContainer, range.endOffset);
-  const end = preEnd.toString().length;
+  const start = getRawOffset(container, range.startContainer, range.startOffset);
+  const end = getRawOffset(container, range.endContainer, range.endOffset);
   return start < end ? { start, end } : { start: end, end: start };
 }
 function readSelection() {
