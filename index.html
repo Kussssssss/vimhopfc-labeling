@@ -64,13 +64,7 @@
             </div>
             <div class="brief-col">
               <span class="brief-label">Trạng thái gắn nhãn</span>
-              <div class="entity-info-card">
-                <select id="rowStatusSelect" class="status-select">
-                  <option value="TODO">⏳ Chưa làm</option>
-                  <option value="DONE">✅ Đã hoàn thành</option>
-                  <option value="SKIP">🚫 Bỏ qua</option>
-                  <option value="EDIT">⚠️ Cần chỉnh sửa</option>
-                </select>
+              <div id="rowStatusContainer" class="entity-info-card status-card-container">
               </div>
             </div>
           </section>
@@ -91,6 +85,7 @@
             </article>
           </div>
         </section>
+        <div id="workspaceSplitter" class="workspace-splitter"></div>
         <aside class="right-pane">
           <section class="claims-panel">
             <div class="panel-head">
@@ -112,26 +107,17 @@
           <span class="claim-title"></span>
           <div class="claim-actions">
             <button class="add-evidence-to-claim primary" type="button" title="Gắn đoạn đang bôi vào claim này">+ Evidence</button>
-            <select class="claim-label">
-              <option value="SUP">SUP</option>
-              <option value="REFUTE">REFUTE</option>
-              <option value="NEI">NEI</option>
-            </select>
+            <button class="lock-claim-btn primary" type="button">Add</button>
+            <button class="edit-claim-btn" type="button" title="Chỉnh sửa lại claim">
+              <svg viewBox="0 0 24 24" width="16" height="16">
+                <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+              </svg>
+            </button>
             <button class="delete-claim" type="button" aria-label="Xóa claim">×</button>
           </div>
         </div>
-        <div class="textarea-wrapper">
-          <textarea class="claim-text" rows="3" placeholder="Viết claim..."></textarea>
-          <button class="edit-claim-btn" type="button" title="Chỉnh sửa lại claim">
-            <svg viewBox="0 0 24 24" width="16" height="16">
-              <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-            </svg>
-          </button>
-        </div>
+        <textarea class="claim-text" rows="3" placeholder="Viết claim..."></textarea>
         <div class="claim-evidence"></div>
-        <div class="claim-footer">
-          <button class="lock-claim-btn primary" type="button">Add</button>
-        </div>
       </article>
     </template>
     <!-- Modal Thống kê -->

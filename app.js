@@ -92,7 +92,8 @@ const els = {
   contextBStats: document.getElementById("contextBStats"),
   claimsList: document.getElementById("claimsList"),
   claimTemplate: document.getElementById("claimTemplate"),
-  rowStatusSelect: document.getElementById("rowStatusSelect"),
+  rowStatusContainer: document.getElementById("rowStatusContainer"),
+  workspaceSplitter: document.getElementById("workspaceSplitter"),
   showStatsBtn: document.getElementById("showStatsBtn"),
   statsModal: document.getElementById("statsModal"),
   closeStatsBtn: document.getElementById("closeStatsBtn"),
@@ -489,7 +490,6 @@ function renderClaims() {
     const fragment = els.claimTemplate.content.cloneNode(true);
     const card = fragment.querySelector(".claim-card");
     const title = fragment.querySelector(".claim-title");
-    const label = fragment.querySelector(".claim-label");
     const text = fragment.querySelector(".claim-text");
     const deleteBtn = fragment.querySelector(".delete-claim");
     const evidenceBox = fragment.querySelector(".claim-evidence");
@@ -499,18 +499,18 @@ function renderClaims() {
 
     const isLocked = !!claim.locked;
     text.disabled = isLocked;
-    label.disabled = isLocked;
-    deleteBtn.disabled = isLocked;
     
     if (isLocked) {
-      addEvBtn.style.display = "none";
+      if (addEvBtn) addEvBtn.style.display = "none";
       if (lockBtn) lockBtn.style.display = "none";
-      if (editBtn) editBtn.style.display = "flex";
+      if (editBtn) editBtn.style.display = "inline-flex";
+      if (deleteBtn) deleteBtn.style.display = "none";
       card.classList.add("locked");
     } else {
-      addEvBtn.style.display = "inline-flex";
+      if (addEvBtn) addEvBtn.style.display = "inline-flex";
       if (lockBtn) lockBtn.style.display = "inline-flex";
       if (editBtn) editBtn.style.display = "none";
+      if (deleteBtn) deleteBtn.style.display = "inline-flex";
       card.classList.remove("locked");
     }
 
@@ -525,6 +525,9 @@ function renderClaims() {
     if (editBtn) {
       editBtn.addEventListener("click", () => {
         claim.locked = false;
+        if (annotation.status === "DONE") {
+          annotation.status = "EDIT";
+        }
         saveAnnotations();
         renderAll();
       });
@@ -538,45 +541,40 @@ function renderClaims() {
       window.hoveredClaimId = null;
       updateEvidenceHighlights();
     });
-    addEvBtn.addEventListener("click", () => {
-      const selectionRange = state.selectedRange;
-      if (!selectionRange) return;
-      claim.evidences.push({
-        id: uid("ev"),
-        label: claim.label,
-        contextId: selectionRange.contextId,
-        start: selectionRange.start,
-        end: selectionRange.end,
-        text: selectionRange.text,
-        createdAt: new Date().toISOString(),
+    if (addEvBtn) {
+      addEvBtn.addEventListener("click", () => {
+        const selectionRange = state.selectedRange;
+        if (!selectionRange) return;
+        claim.evidences.push({
+          id: uid("ev"),
+          label: claim.label,
+          contextId: selectionRange.contextId,
+          start: selectionRange.start,
+          end: selectionRange.end,
+          text: selectionRange.text,
+          createdAt: new Date().toISOString(),
+        });
+        saveAnnotations();
+        window.getSelection()?.removeAllRanges();
+        updateSelection(null);
+        renderAll();
       });
-      saveAnnotations();
-      window.getSelection()?.removeAllRanges();
-      updateSelection(null);
-      renderAll();
-    });
+    }
     card.dataset.label = claim.label;
     card.style.borderLeftColor = `rgb(${colorRgb})`;
     title.textContent = `Câu ${claim.label} ${claimOrdinal(claim)}`;
-    label.value = claim.label;
     text.value = claim.text || "";
-    label.addEventListener("change", () => {
-      claim.label = label.value;
-      claim.evidences.forEach((evidence) => {
-        evidence.label = label.value;
-      });
-      saveAnnotations();
-      renderAll();
-    });
     text.addEventListener("input", () => {
       claim.text = text.value;
       saveAnnotations();
     });
-    deleteBtn.addEventListener("click", () => {
-      annotation.claims = annotation.claims.filter((item) => item.id !== claim.id);
-      saveAnnotations();
-      renderAll();
-    });
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", () => {
+        annotation.claims = annotation.claims.filter((item) => item.id !== claim.id);
+        saveAnnotations();
+        renderAll();
+      });
+    }
     if (!claim.evidences.length) {
       const empty = document.createElement("div");
       empty.className = "empty-evidence";
@@ -679,6 +677,56 @@ function renderClaims() {
     els.claimsList.append(fragment);
   });
 }
+
+
+function renderStatusSection() {
+  const annotation = currentAnnotation();
+  if (!els.rowStatusContainer) return;
+
+  els.rowStatusContainer.innerHTML = "";
+
+  const hasClaims = annotation.claims && annotation.claims.length > 0;
+  const allClaimsLocked = hasClaims && annotation.claims.every(c => c.locked);
+
+  if (annotation.status === "DONE") {
+    els.rowStatusContainer.innerHTML = `
+      <div class="submitted-status-wrapper">
+        <span class="submitted-badge">✅ Đã hoàn thành</span>
+        <button id="revertSubmitBtn" class="revert-submit-btn" type="button">Sửa lại</button>
+      </div>
+    `;
+    document.getElementById("revertSubmitBtn").addEventListener("click", () => {
+      annotation.status = "EDIT";
+      saveAnnotations();
+      renderAll();
+    });
+  } else if (hasClaims && allClaimsLocked) {
+    els.rowStatusContainer.innerHTML = `
+      <button id="submitSampleBtn" class="submit-sample-btn" type="button">✅ Submit (Kiểm chứng lần cuối)</button>
+    `;
+    document.getElementById("submitSampleBtn").addEventListener("click", () => {
+      annotation.status = "DONE";
+      saveAnnotations();
+      renderAll();
+    });
+  } else {
+    const select = document.createElement("select");
+    select.id = "rowStatusSelect";
+    select.className = "status-select";
+    select.innerHTML = `
+      <option value="TODO">⏳ Chưa làm</option>
+      <option value="EDIT">⚠️ Cần chỉnh sửa</option>
+      <option value="SKIP">🚫 Bỏ qua</option>
+    `;
+    select.value = annotation.status || "TODO";
+    select.addEventListener("change", () => {
+      annotation.status = select.value;
+      saveAnnotations();
+    });
+    els.rowStatusContainer.appendChild(select);
+  }
+}
+
 function renderSample() {
   const row = currentRow();
   if (!row) {
@@ -691,7 +739,7 @@ function renderSample() {
     els.bridgeType.textContent = "";
     els.subjectEntity.textContent = "-";
     els.subjectType.textContent = "";
-    if (els.rowStatusSelect) els.rowStatusSelect.value = "TODO";
+    renderStatusSection();
     els.contextAStats.textContent = "";
     els.contextBStats.textContent = "";
     els.contextA.textContent = "Trống";
@@ -713,9 +761,7 @@ function renderSample() {
   els.bridgeType.textContent = row.bridge_type ? `(${row.bridge_type})` : "";
   els.subjectEntity.textContent = row.subject_entity || "-";
   els.subjectType.textContent = row.subject_type ? `(${row.subject_type})` : "";
-  if (els.rowStatusSelect) {
-    els.rowStatusSelect.value = annotation.status || "TODO";
-  }
+  renderStatusSection();
   els.contextAStats.textContent = `${wordCount(row.contextA)} từ`;
   els.contextBStats.textContent = `${wordCount(row.contextB)} từ · rank ${row.rank || "-"}`;
   renderContext("A");
@@ -790,13 +836,22 @@ function getContextFromSelection(selection) {
   if (!startContext || !endContext || startContext !== endContext) return null;
   return startContext;
 }
-function getRawOffset(container, targetNode, targetOffset) {
+function getOriginalTextOffset(container, targetNode, targetOffset) {
   let offset = 0;
   let found = false;
 
   function traverse(node) {
     if (found) return;
     
+    if (node.nodeType === Node.ELEMENT_NODE && 
+        node.classList && 
+        (node.classList.contains("evidence-tag") || node.classList.contains("evidence-tag-wrapper"))) {
+      if (node === targetNode || node.contains(targetNode)) {
+        found = true;
+      }
+      return;
+    }
+
     if (node === targetNode) {
       if (node.nodeType === Node.TEXT_NODE) {
         offset += targetOffset;
@@ -805,7 +860,11 @@ function getRawOffset(container, targetNode, targetOffset) {
            if (node.childNodes[i]) {
                function sumLength(n) {
                   if (n.nodeType === Node.TEXT_NODE) return n.nodeValue.length;
-                  if (n.nodeType === Node.ELEMENT_NODE && (n.classList.contains("evidence-tag") || n.classList.contains("evidence-tag-wrapper"))) return 0;
+                  if (n.nodeType === Node.ELEMENT_NODE && 
+                      n.classList && 
+                      (n.classList.contains("evidence-tag") || n.classList.contains("evidence-tag-wrapper"))) {
+                    return 0;
+                  }
                   let sum = 0;
                   for (let c of n.childNodes) sum += sumLength(c);
                   return sum;
@@ -821,9 +880,6 @@ function getRawOffset(container, targetNode, targetOffset) {
     if (node.nodeType === Node.TEXT_NODE) {
       offset += node.nodeValue.length;
     } else if (node.nodeType === Node.ELEMENT_NODE) {
-      if (node.classList.contains("evidence-tag-wrapper") || node.classList.contains("evidence-tag")) {
-        return;
-      }
       for (let i = 0; i < node.childNodes.length; i++) {
         traverse(node.childNodes[i]);
         if (found) return;
@@ -836,8 +892,8 @@ function getRawOffset(container, targetNode, targetOffset) {
 }
 
 function selectedOffsets(container, range) {
-  const start = getRawOffset(container, range.startContainer, range.startOffset);
-  const end = getRawOffset(container, range.endContainer, range.endOffset);
+  const start = getOriginalTextOffset(container, range.startContainer, range.startOffset);
+  const end = getOriginalTextOffset(container, range.endContainer, range.endOffset);
   return start < end ? { start, end } : { start: end, end: start };
 }
 function readSelection() {
@@ -991,13 +1047,7 @@ els.sampleIndex.addEventListener("change", () => {
 });
 els.statusFilter.addEventListener("change", applyFilters);
 els.searchInput.addEventListener("input", applyFilters);
-if (els.rowStatusSelect) {
-  els.rowStatusSelect.addEventListener("change", () => {
-    const annotation = currentAnnotation();
-    annotation.status = els.rowStatusSelect.value;
-    saveAnnotations();
-  });
-}
+// Removed rowStatusSelect change event listener (now dynamic)
 if (els.showStatsBtn) els.showStatsBtn.addEventListener("click", showStatsModal);
 if (els.closeStatsBtn) els.closeStatsBtn.addEventListener("click", hideStatsModal);
 els.closeEvidenceBtn?.addEventListener("click", () => {
@@ -1019,4 +1069,48 @@ document.querySelectorAll("[data-add-claim]").forEach((button) => {
     window.requestAnimationFrame(() => updateSelection());
   });
 });
+function initSplitter() {
+  const splitter = els.workspaceSplitter;
+  const rightPane = document.querySelector(".right-pane");
+  const workspace = document.querySelector(".workspace");
+  if (!splitter || !rightPane || !workspace) return;
+
+  let isDragging = false;
+
+  splitter.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    splitter.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    const workspaceRect = workspace.getBoundingClientRect();
+    const newWidth = workspaceRect.right - e.clientX - 10;
+    if (newWidth >= 280 && newWidth <= 600) {
+      rightPane.style.width = `${newWidth}px`;
+      localStorage.setItem("mh-labeler:splitter-width", newWidth);
+    }
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (isDragging) {
+      isDragging = false;
+      splitter.classList.remove("dragging");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+  });
+
+  const savedWidth = localStorage.getItem("mh-labeler:splitter-width");
+  if (savedWidth) {
+    const w = parseInt(savedWidth, 10);
+    if (w >= 280 && w <= 600) {
+      rightPane.style.width = `${w}px`;
+    }
+  }
+}
+
+initSplitter();
 loadDefaultCsv();

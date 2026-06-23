@@ -166,9 +166,8 @@ button:disabled {
   pointer-events: none;
 }
 .workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--claims-width, 400px);
-  gap: 20px;
+  display: flex;
+  gap: 0;
   padding: 20px;
   min-height: 0;
   flex: 1;
@@ -178,6 +177,31 @@ button:disabled {
   height: calc(100vh - 69px);
   overflow: hidden;
 }
+.workspace-splitter {
+  width: 8px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s;
+  z-index: 10;
+}
+.workspace-splitter::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--line);
+  transition: background 0.2s, width 0.2s, left 0.2s;
+}
+.workspace-splitter:hover::after,
+.workspace-splitter.dragging::after {
+  left: 2px;
+  width: 4px;
+  background: var(--accent);
+}
 .left-pane {
   min-width: 0;
   height: 100%;
@@ -186,13 +210,17 @@ button:disabled {
   overflow: hidden;
 }
 .right-pane {
-  min-width: 0;
+  width: var(--claims-width, 400px);
+  min-width: 280px;
+  max-width: 600px;
   height: 100%;
   overflow-y: auto;
+  padding-left: 12px;
   padding-right: 8px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex-shrink: 0;
 }
 .sample-toolbar {
   display: grid;
@@ -636,17 +664,24 @@ button:disabled {
     overflow: auto;
   }
   .workspace {
-    grid-template-columns: 1fr;
+    flex-direction: column;
     height: auto;
     overflow: visible;
     gap: 16px;
     padding: 16px;
+  }
+  .workspace-splitter {
+    display: none;
   }
   .left-pane {
     height: auto;
     overflow: visible;
   }
   .right-pane {
+    width: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+    padding-left: 0;
     height: auto;
     overflow: visible;
   }
@@ -712,20 +747,36 @@ button:disabled {
   font-size: 14px;
 }
 
-/* Claim Textarea and Edit Lock button */
-.textarea-wrapper {
-  position: relative;
-  width: 100%;
+.claim-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.lock-claim-btn {
+  padding: 4px 12px;
+  font-size: 11px;
+  min-height: 26px;
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.lock-claim-btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 .edit-claim-btn {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: 4px;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   display: none;
   align-items: center;
@@ -733,29 +784,75 @@ button:disabled {
   color: var(--muted);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  z-index: 2;
 }
 .edit-claim-btn:hover {
   background: var(--accent-soft);
   color: var(--accent);
   border-color: var(--accent);
 }
-.claim-card.locked .edit-claim-btn {
-  display: flex;
-}
 .claim-card.locked {
   background: var(--surface-soft) !important;
 }
 
-.claim-footer {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 4px;
+/* Status select & submit styles */
+.status-card-container {
+  padding: 6px 12px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
 }
-.lock-claim-btn {
-  font-size: 12px;
-  min-height: 28px;
-  padding: 4px 16px;
+.submit-sample-btn {
+  width: 100%;
+  height: 100%;
+  min-height: 36px;
+  font-weight: 700;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  background: var(--sup-border);
+  color: #fff;
+  border: 1px solid var(--sup-border);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s;
+}
+.submit-sample-btn:hover {
+  background: #059669;
+  border-color: #059669;
+  transform: translateY(-1px);
+}
+.submitted-status-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+}
+.submitted-badge {
+  font-weight: 700;
+  color: #065f46;
+  font-size: 13px;
+}
+.revert-submit-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  min-height: 26px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.revert-submit-btn:hover {
+  background: var(--surface-soft);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* Modal backend and layouts */
