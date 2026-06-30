@@ -109,6 +109,26 @@ const els = {
   closeEvidenceBtn: document.getElementById("closeEvidenceBtn"),
   evidenceModalTitle: document.getElementById("evidenceModalTitle"),
   evidenceModalContent: document.getElementById("evidenceModalContent"),
+  modelSettingsBtn: document.getElementById("modelSettingsBtn"),
+  settingsModal: document.getElementById("settingsModal"),
+  closeSettingsBtn: document.getElementById("closeSettingsBtn"),
+  cfgBaseUrl: document.getElementById("cfgBaseUrl"),
+  cfgApiKey: document.getElementById("cfgApiKey"),
+  cfgModel: document.getElementById("cfgModel"),
+  cfgInstruction: document.getElementById("cfgInstruction"),
+  cfgTemperature: document.getElementById("cfgTemperature"),
+  cfgTimeout: document.getElementById("cfgTimeout"),
+  cfgTestResult: document.getElementById("cfgTestResult"),
+  testModelBtn: document.getElementById("testModelBtn"),
+  saveSettingsBtn: document.getElementById("saveSettingsBtn"),
+  verifyLoadingOverlay: document.getElementById("verifyLoadingOverlay"),
+  verifyLoadingTitle: document.getElementById("verifyLoadingTitle"),
+  verifyLoadingText: document.getElementById("verifyLoadingText"),
+  verificationModal: document.getElementById("verificationModal"),
+  closeVerificationBtn: document.getElementById("closeVerificationBtn"),
+  verifySummary: document.getElementById("verifySummary"),
+  verifyResults: document.getElementById("verifyResults"),
+  verifyFooter: document.getElementById("verifyFooter"),
 };
 function uid(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -702,12 +722,10 @@ function renderStatusSection() {
     });
   } else if (hasClaims && allClaimsLocked) {
     els.rowStatusContainer.innerHTML = `
-      <button id="submitSampleBtn" class="submit-sample-btn" type="button">✅ Submit (Kiểm chứng lần cuối)</button>
+      <button id="submitSampleBtn" class="submit-sample-btn" type="button">✅ Submit (Kiểm chứng one-hop)</button>
     `;
     document.getElementById("submitSampleBtn").addEventListener("click", () => {
-      annotation.status = "DONE";
-      saveAnnotations();
-      renderAll();
+      runVerificationAndSubmit(currentRow(), annotation);
     });
   } else {
     const select = document.createElement("select");
@@ -1069,6 +1087,402 @@ document.querySelectorAll("[data-add-claim]").forEach((button) => {
     window.requestAnimationFrame(() => updateSelection());
   });
 });
+/* ============================================================
+ * Custom Model API — one-hop fact-checking verification
+ * ============================================================ */
+const MODEL_CFG_KEY = "mh-labeler:model-config";
+const VERIFY_LABELS = ["SUP", "REFUTE"]; // chỉ kiểm tra SUP/REFUTE; NEI bỏ qua
+const DEFAULT_MODEL_CFG = {
+  baseUrl: "https://<workspace>--gemma-unsloth-api.modal.run/v1",
+  apiKey: "empty",
+  model: "tranthaihoa/gemma-7b-finetuned-awq",
+  instruction:
+    "Bạn là hệ thống fact-checking. Chỉ dựa vào phần Ngữ cảnh trong Input bên dưới, " +
+    "hãy phân loại claim thành đúng MỘT nhãn: SUP, REFUTE, hoặc NEI. " +
+    "SUP nếu ngữ cảnh đủ thông tin để khẳng định claim đúng; " +
+    "REFUTE nếu ngữ cảnh mâu thuẫn với claim; " +
+    "NEI nếu ngữ cảnh không đủ thông tin để kết luận. " +
+    "Chỉ trả lời bằng một từ duy nhất: SUP, REFUTE hoặc NEI.",
+  temperature: 0,
+  timeoutMs: 60000,
+};
+
+function loadModelConfig() {
+  try {
+    return { ...DEFAULT_MODEL_CFG, ...JSON.parse(localStorage.getItem(MODEL_CFG_KEY) || "{}") };
+  } catch {
+    return { ...DEFAULT_MODEL_CFG };
+  }
+}
+function saveModelConfig(cfg) {
+  localStorage.setItem(MODEL_CFG_KEY, JSON.stringify(cfg));
+}
+function isModelConfigured(cfg = loadModelConfig()) {
+  const url = (cfg.baseUrl || "").trim();
+  return !!url && !url.includes("<workspace>");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]),
+  );
+}
+
+function alpacaPrompt(instruction, input) {
+  return `Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+
+### Instruction:
+${instruction}
+
+### Input:
+${input}
+
+### Response:
+`;
+}
+
+function parseLabel(text) {
+  const match = String(text || "").toUpperCase().match(/\b(SUP|REFUTE|NEI)\b/);
+  return match ? match[1] : null;
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error(`Hết thời gian chờ (${Math.round(timeoutMs / 1000)}s)`);
+    }
+    throw new Error(`Không gọi được API (kiểm tra URL / CORS): ${err.message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function modelPredict(instruction, inputText, cfg) {
+  const base = (cfg.baseUrl || "").trim().replace(/\/+$/, "");
+  const res = await fetchWithTimeout(
+    `${base}/completions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: cfg.model,
+        prompt: alpacaPrompt(instruction, inputText),
+        max_tokens: 16,
+        temperature: Number(cfg.temperature) || 0,
+        stop: ["<eos>", "###"],
+      }),
+    },
+    Number(cfg.timeoutMs) || 60000,
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}${body ? `: ${body.slice(0, 120)}` : ""}`);
+  }
+  const data = await res.json();
+  const raw = (data.choices?.[0]?.text ?? "").trim();
+  return { label: parseLabel(raw), raw };
+}
+
+function buildCheckInput(contextText, claimText) {
+  return `Ngữ cảnh:\n${contextText}\n\nCâu cần kiểm tra (claim):\n${claimText}`;
+}
+
+// Kiểm tra 1 claim qua tối đa 3 bước. PASS = model trượt cả 3 bước.
+async function verifyClaim(row, claim, cfg, onStep) {
+  const target = String(claim.label || "").toUpperCase();
+  onStep?.("Chỉ Context A");
+  const A = await modelPredict(cfg.instruction, buildCheckInput(row.contextA, claim.text), cfg);
+  const leakedA = A.label === target;
+
+  onStep?.("Chỉ Context B");
+  const B = await modelPredict(cfg.instruction, buildCheckInput(row.contextB, claim.text), cfg);
+  const leakedB = B.label === target;
+
+  let AB = null;
+  let solvedAB = false;
+  if (!leakedA && !leakedB) {
+    onStep?.("Context A + B");
+    AB = await modelPredict(
+      cfg.instruction,
+      buildCheckInput(`${row.contextA}\n\n${row.contextB}`, claim.text),
+      cfg,
+    );
+    solvedAB = AB.label === target;
+  }
+
+  const pass = !leakedA && !leakedB && !solvedAB;
+  return { claimId: claim.id, label: target, text: claim.text, A, B, AB, leakedA, leakedB, solvedAB, pass };
+}
+
+function showVerifyLoading(show) {
+  if (els.verifyLoadingOverlay) els.verifyLoadingOverlay.style.display = show ? "flex" : "none";
+}
+function setVerifyLoading(title, text) {
+  if (els.verifyLoadingTitle) els.verifyLoadingTitle.textContent = title;
+  if (els.verifyLoadingText) {
+    els.verifyLoadingText.textContent = text || "Lần gọi đầu có thể mất 15–20s để bật GPU.";
+  }
+}
+
+async function runVerificationAndSubmit(row, annotation) {
+  if (!row || !annotation) return;
+  const cfg = loadModelConfig();
+
+  if (!isModelConfigured(cfg)) {
+    const proceed = window.confirm(
+      "Chưa cấu hình Model API (nút ⚙️ Model).\n\nBấm OK để Submit mà KHÔNG kiểm chứng one-hop, hoặc Cancel để mở cấu hình.",
+    );
+    if (proceed) {
+      annotation.status = "DONE";
+      saveAnnotations();
+      renderAll();
+    } else {
+      openSettingsModal();
+    }
+    return;
+  }
+
+  const targets = annotation.claims.filter(
+    (c) => VERIFY_LABELS.includes(String(c.label).toUpperCase()) && (c.text || "").trim(),
+  );
+
+  if (!targets.length) {
+    annotation.status = "DONE";
+    saveAnnotations();
+    renderAll();
+    return;
+  }
+
+  showVerifyLoading(true);
+  const results = [];
+  let errored = null;
+  try {
+    for (let i = 0; i < targets.length; i += 1) {
+      const claim = targets[i];
+      const head = `Đang kiểm tra claim ${i + 1}/${targets.length} · ${claim.label}`;
+      setVerifyLoading(head, "");
+      // eslint-disable-next-line no-await-in-loop
+      const result = await verifyClaim(row, claim, cfg, (step) => setVerifyLoading(head, `Bước: ${step}`));
+      results.push(result);
+    }
+  } catch (err) {
+    errored = err;
+  }
+  showVerifyLoading(false);
+
+  if (errored) {
+    showVerificationError(errored, row, annotation);
+    return;
+  }
+
+  annotation.verification = {
+    checkedAt: new Date().toISOString(),
+    results: results.map((r) => ({
+      claimId: r.claimId,
+      label: r.label,
+      pass: r.pass,
+      leakedA: r.leakedA,
+      leakedB: r.leakedB,
+      solvedAB: r.solvedAB,
+      predA: r.A.label,
+      predB: r.B.label,
+      predAB: r.AB?.label ?? null,
+    })),
+  };
+
+  const allPass = results.every((r) => r.pass);
+  annotation.status = allPass ? "DONE" : "EDIT";
+  saveAnnotations();
+  showVerificationResults(results, row, annotation, allPass);
+  renderAll();
+}
+
+function verifyStepHtml(name, predLabel, target, bad) {
+  const pred = predLabel || "—";
+  const verdict = bad
+    ? `model đoán đúng nhãn "${escapeHtml(target)}" → bị lộ`
+    : `model đoán "${escapeHtml(pred)}" ≠ "${escapeHtml(target)}" → ổn`;
+  return `
+    <div class="verify-step ${bad ? "bad" : "good"}">
+      <span class="step-name">${escapeHtml(name)}</span>
+      <span class="step-pred">model: <b>${escapeHtml(pred)}</b></span>
+      <span class="step-verdict">${verdict}</span>
+    </div>`;
+}
+
+function showVerificationResults(results, row, annotation, allPass) {
+  const leakCount = results.filter((r) => !r.pass).length;
+  els.verifySummary.className = "verify-summary " + (allPass ? "ok" : "warn");
+  els.verifySummary.innerHTML = allPass
+    ? `✅ Tất cả ${results.length} claim đạt: model single-hop <b>không</b> suy ra được nhãn ở cả 3 bước. Sample đã được đánh dấu <b>Đã hoàn thành</b>.`
+    : `⚠️ ${leakCount}/${results.length} claim bị "lộ" qua single-hop. Sample được chuyển sang <b>Cần chỉnh sửa</b>. Nên sửa lại claim hoặc bổ sung hop suy luận.`;
+
+  els.verifyResults.innerHTML = "";
+  results.forEach((r) => {
+    const card = document.createElement("div");
+    card.className = "verify-claim " + (r.pass ? "pass" : "leak");
+    const steps = [
+      verifyStepHtml("Chỉ Context A", r.A.label, r.label, r.leakedA),
+      verifyStepHtml("Chỉ Context B", r.B.label, r.label, r.leakedB),
+    ];
+    if (r.AB) steps.push(verifyStepHtml("Context A + B", r.AB.label, r.label, r.solvedAB));
+    card.innerHTML = `
+      <div class="verify-claim-head">
+        <span class="verify-verdict">${r.pass ? "✅ ĐẠT" : "⚠️ BỊ LỘ"}</span>
+        <span class="verify-claim-label" data-label="${escapeHtml(r.label)}">${escapeHtml(r.label)}</span>
+      </div>
+      <div class="verify-claim-text">${escapeHtml(r.text)}</div>
+      <div class="verify-steps">${steps.join("")}</div>`;
+    els.verifyResults.append(card);
+  });
+
+  els.verifyFooter.innerHTML = "";
+  if (allPass) {
+    const ok = document.createElement("button");
+    ok.className = "primary";
+    ok.type = "button";
+    ok.textContent = "Đóng";
+    ok.addEventListener("click", () => {
+      els.verificationModal.style.display = "none";
+    });
+    els.verifyFooter.append(ok);
+  } else {
+    const force = document.createElement("button");
+    force.type = "button";
+    force.textContent = "Vẫn submit (đè cảnh báo)";
+    force.addEventListener("click", () => {
+      annotation.status = "DONE";
+      saveAnnotations();
+      els.verificationModal.style.display = "none";
+      renderAll();
+    });
+    const fix = document.createElement("button");
+    fix.className = "primary";
+    fix.type = "button";
+    fix.textContent = "Để tôi sửa lại";
+    fix.addEventListener("click", () => {
+      els.verificationModal.style.display = "none";
+    });
+    els.verifyFooter.append(force, fix);
+  }
+  els.verificationModal.style.display = "flex";
+}
+
+function showVerificationError(err, row, annotation) {
+  els.verifySummary.className = "verify-summary error";
+  els.verifySummary.textContent =
+    `❌ Lỗi gọi model: ${err.message}. Kiểm tra Base URL / CORS / GPU rồi thử lại. Bạn vẫn có thể submit thủ công.`;
+  els.verifyResults.innerHTML = "";
+  els.verifyFooter.innerHTML = "";
+
+  const retry = document.createElement("button");
+  retry.className = "primary";
+  retry.type = "button";
+  retry.textContent = "Thử lại";
+  retry.addEventListener("click", () => {
+    els.verificationModal.style.display = "none";
+    runVerificationAndSubmit(row, annotation);
+  });
+
+  const cfgBtn = document.createElement("button");
+  cfgBtn.type = "button";
+  cfgBtn.textContent = "⚙️ Cấu hình";
+  cfgBtn.addEventListener("click", () => {
+    els.verificationModal.style.display = "none";
+    openSettingsModal();
+  });
+
+  const manual = document.createElement("button");
+  manual.type = "button";
+  manual.textContent = "Submit không kiểm chứng";
+  manual.addEventListener("click", () => {
+    annotation.status = "DONE";
+    saveAnnotations();
+    els.verificationModal.style.display = "none";
+    renderAll();
+  });
+
+  els.verifyFooter.append(retry, cfgBtn, manual);
+  els.verificationModal.style.display = "flex";
+}
+
+/* ---------- Settings modal ---------- */
+function openSettingsModal() {
+  const cfg = loadModelConfig();
+  els.cfgBaseUrl.value = cfg.baseUrl;
+  els.cfgApiKey.value = cfg.apiKey;
+  els.cfgModel.value = cfg.model;
+  els.cfgInstruction.value = cfg.instruction;
+  els.cfgTemperature.value = cfg.temperature;
+  els.cfgTimeout.value = cfg.timeoutMs;
+  els.cfgTestResult.textContent = "";
+  els.cfgTestResult.className = "cfg-test-result";
+  els.settingsModal.style.display = "flex";
+}
+
+function readSettingsForm() {
+  return {
+    baseUrl: els.cfgBaseUrl.value.trim(),
+    apiKey: els.cfgApiKey.value.trim(),
+    model: els.cfgModel.value.trim(),
+    instruction: els.cfgInstruction.value.trim() || DEFAULT_MODEL_CFG.instruction,
+    temperature: Number(els.cfgTemperature.value) || 0,
+    timeoutMs: Number(els.cfgTimeout.value) || 60000,
+  };
+}
+
+function saveSettings() {
+  saveModelConfig(readSettingsForm());
+  els.settingsModal.style.display = "none";
+}
+
+async function testModelConnection() {
+  const cfg = readSettingsForm();
+  if (!isModelConfigured(cfg)) {
+    els.cfgTestResult.className = "cfg-test-result error";
+    els.cfgTestResult.textContent = "❌ Base URL chưa hợp lệ (còn chứa <workspace> hoặc để trống).";
+    return;
+  }
+  els.cfgTestResult.className = "cfg-test-result testing";
+  els.cfgTestResult.textContent = "Đang gọi thử (có thể mất 15–20s nếu GPU đang ngủ)…";
+  try {
+    const sample = "Hà Nội là thủ đô của Việt Nam.";
+    const r = await modelPredict(cfg.instruction, buildCheckInput(sample, sample), cfg);
+    els.cfgTestResult.className = "cfg-test-result ok";
+    els.cfgTestResult.textContent = r.label
+      ? `✅ Kết nối OK. Nhãn parse được: ${r.label}`
+      : `✅ Kết nối OK nhưng chưa parse được nhãn. Output thô: "${r.raw.slice(0, 80)}"`;
+  } catch (err) {
+    els.cfgTestResult.className = "cfg-test-result error";
+    els.cfgTestResult.textContent = `❌ Lỗi: ${err.message}`;
+  }
+}
+
+if (els.modelSettingsBtn) els.modelSettingsBtn.addEventListener("click", openSettingsModal);
+if (els.closeSettingsBtn) {
+  els.closeSettingsBtn.addEventListener("click", () => {
+    els.settingsModal.style.display = "none";
+  });
+}
+if (els.saveSettingsBtn) els.saveSettingsBtn.addEventListener("click", saveSettings);
+if (els.testModelBtn) els.testModelBtn.addEventListener("click", testModelConnection);
+if (els.closeVerificationBtn) {
+  els.closeVerificationBtn.addEventListener("click", () => {
+    els.verificationModal.style.display = "none";
+  });
+}
+window.addEventListener("click", (e) => {
+  if (e.target === els.settingsModal) els.settingsModal.style.display = "none";
+  if (e.target === els.verificationModal) els.verificationModal.style.display = "none";
+});
+
 function initSplitter() {
   const splitter = els.workspaceSplitter;
   const rightPane = document.querySelector(".right-pane");

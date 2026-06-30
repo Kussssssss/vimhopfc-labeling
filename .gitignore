@@ -7,3 +7,6 @@
 # Local annotation exports
 /multihop_annotations*.json
 /multihop_annotations*.csv
+
+# Local editor / tooling config
+/.claude/

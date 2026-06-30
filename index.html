@@ -27,6 +27,7 @@
           <button id="exportJsonBtn" type="button">Export JSON</button>
           <button id="exportCsvBtn" type="button">Export CSV</button>
           <button id="showStatsBtn" type="button">Thống kê</button>
+          <button id="modelSettingsBtn" type="button" title="Cấu hình model kiểm chứng one-hop">⚙️ Model</button>
         </div>
       </header>
       <main class="workspace">
@@ -188,6 +189,76 @@
         <div class="modal-body">
           <div id="evidenceModalContent" class="evidence-modal-content"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- Modal Cấu hình Model API -->
+    <div id="settingsModal" class="modal-backdrop" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2>⚙️ Cấu hình Model API</h2>
+          <button id="closeSettingsBtn" class="close-modal-btn" type="button">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="settings-form">
+            <label class="settings-field">
+              <span>Base URL (kết thúc bằng <code>/v1</code>)</span>
+              <input id="cfgBaseUrl" type="text" placeholder="https://&lt;workspace&gt;--gemma-unsloth-api.modal.run/v1" />
+            </label>
+            <label class="settings-field">
+              <span>API Key</span>
+              <input id="cfgApiKey" type="text" placeholder="empty" />
+            </label>
+            <label class="settings-field">
+              <span>Model</span>
+              <input id="cfgModel" type="text" placeholder="tranthaihoa/gemma-7b-finetuned-awq" />
+            </label>
+            <label class="settings-field">
+              <span>Instruction (prompt phân loại SUP / REFUTE / NEI)</span>
+              <textarea id="cfgInstruction" rows="4"></textarea>
+            </label>
+            <div class="settings-row">
+              <label class="settings-field">
+                <span>Temperature</span>
+                <input id="cfgTemperature" type="number" step="0.1" min="0" max="2" />
+              </label>
+              <label class="settings-field">
+                <span>Timeout (ms)</span>
+                <input id="cfgTimeout" type="number" step="1000" min="5000" />
+              </label>
+            </div>
+            <div id="cfgTestResult" class="cfg-test-result"></div>
+            <p class="settings-hint">Model đóng vai single-hop fact-checker. Khi Submit, mỗi claim SUP/REFUTE được kiểm 3 bước: chỉ Context A, chỉ Context B, rồi cả hai. Claim đạt khi model <b>không</b> suy ra được nhãn ở cả 3 bước.</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="testModelBtn" type="button">🧪 Test kết nối</button>
+          <button id="saveSettingsBtn" class="primary" type="button">Lưu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay khi đang gọi model (cold-start) -->
+    <div id="verifyLoadingOverlay" class="modal-backdrop" style="display: none;">
+      <div class="verify-loading-box">
+        <div class="verify-spinner"></div>
+        <h3 id="verifyLoadingTitle">🔥 Đang khởi động mô hình…</h3>
+        <p id="verifyLoadingText">Lần gọi đầu trong ngày có thể mất 15–20 giây để bật GPU.</p>
+      </div>
+    </div>
+
+    <!-- Modal kết quả kiểm chứng one-hop -->
+    <div id="verificationModal" class="modal-backdrop" style="display: none;">
+      <div class="modal-card verify-card">
+        <div class="modal-header">
+          <h2>🔍 Kiểm chứng one-hop</h2>
+          <button id="closeVerificationBtn" class="close-modal-btn" type="button">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div id="verifySummary" class="verify-summary"></div>
+          <div id="verifyResults" class="verify-results"></div>
+        </div>
+        <div class="modal-footer" id="verifyFooter"></div>
       </div>
     </div>
 
