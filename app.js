@@ -124,6 +124,7 @@ const els = {
   verifyLoadingOverlay: document.getElementById("verifyLoadingOverlay"),
   verifyLoadingTitle: document.getElementById("verifyLoadingTitle"),
   verifyLoadingText: document.getElementById("verifyLoadingText"),
+  verifyCancelBtn: document.getElementById("verifyCancelBtn"),
   verificationModal: document.getElementById("verificationModal"),
   closeVerificationBtn: document.getElementById("closeVerificationBtn"),
   verifySummary: document.getElementById("verifySummary"),
@@ -1092,10 +1093,11 @@ document.querySelectorAll("[data-add-claim]").forEach((button) => {
  * ============================================================ */
 const MODEL_CFG_KEY = "mh-labeler:model-config";
 const VERIFY_LABELS = ["SUP", "REFUTE"]; // chỉ kiểm tra SUP/REFUTE; NEI bỏ qua
+let verifyAbort = null; // AbortController cho phép Hủy khi đang kiểm chứng
 const DEFAULT_MODEL_CFG = {
   baseUrl: "https://<workspace>--gemma-unsloth-api.modal.run/v1",
   apiKey: "empty",
-  model: "tranthaihoa/gemma-7b-finetuned-awq",
+  model: "Kus669/gemma_context_merged",
   instruction:
     "Bạn là hệ thống fact-checking. Chỉ dựa vào phần Ngữ cảnh trong Input bên dưới, " +
     "hãy phân loại claim thành đúng MỘT nhãn: SUP, REFUTE, hoặc NEI. " +
@@ -1104,7 +1106,7 @@ const DEFAULT_MODEL_CFG = {
     "NEI nếu ngữ cảnh không đủ thông tin để kết luận. " +
     "Chỉ trả lời bằng một từ duy nhất: SUP, REFUTE hoặc NEI.",
   temperature: 0,
-  timeoutMs: 60000,
+  timeoutMs: 240000, // đủ vượt cold-start GPU (~2-3 phút lần gọi đầu mỗi phiên)
 };
 
 function loadModelConfig() {
@@ -1146,22 +1148,34 @@ function parseLabel(text) {
   return match ? match[1] : null;
 }
 
-async function fetchWithTimeout(url, options, timeoutMs) {
+async function fetchWithTimeout(url, options, timeoutMs, externalSignal) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) externalSignal.addEventListener("abort", onExternalAbort);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (err) {
+    if (externalSignal && externalSignal.aborted && !timedOut) {
+      const cancelErr = new Error("Đã hủy kiểm chứng");
+      cancelErr.cancelled = true;
+      throw cancelErr;
+    }
     if (err.name === "AbortError") {
       throw new Error(`Hết thời gian chờ (${Math.round(timeoutMs / 1000)}s)`);
     }
     throw new Error(`Không gọi được API (kiểm tra URL / CORS): ${err.message}`);
   } finally {
     clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
   }
 }
 
-async function modelPredict(instruction, inputText, cfg) {
+async function modelPredict(instruction, inputText, cfg, signal) {
   const base = (cfg.baseUrl || "").trim().replace(/\/+$/, "");
   const res = await fetchWithTimeout(
     `${base}/completions`,
@@ -1180,6 +1194,7 @@ async function modelPredict(instruction, inputText, cfg) {
       }),
     },
     Number(cfg.timeoutMs) || 60000,
+    signal,
   );
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -1195,14 +1210,14 @@ function buildCheckInput(contextText, claimText) {
 }
 
 // Kiểm tra 1 claim qua tối đa 3 bước. PASS = model trượt cả 3 bước.
-async function verifyClaim(row, claim, cfg, onStep) {
+async function verifyClaim(row, claim, cfg, onStep, signal) {
   const target = String(claim.label || "").toUpperCase();
   onStep?.("Chỉ Context A");
-  const A = await modelPredict(cfg.instruction, buildCheckInput(row.contextA, claim.text), cfg);
+  const A = await modelPredict(cfg.instruction, buildCheckInput(row.contextA, claim.text), cfg, signal);
   const leakedA = A.label === target;
 
   onStep?.("Chỉ Context B");
-  const B = await modelPredict(cfg.instruction, buildCheckInput(row.contextB, claim.text), cfg);
+  const B = await modelPredict(cfg.instruction, buildCheckInput(row.contextB, claim.text), cfg, signal);
   const leakedB = B.label === target;
 
   let AB = null;
@@ -1213,6 +1228,7 @@ async function verifyClaim(row, claim, cfg, onStep) {
       cfg.instruction,
       buildCheckInput(`${row.contextA}\n\n${row.contextB}`, claim.text),
       cfg,
+      signal,
     );
     solvedAB = AB.label === target;
   }
@@ -1261,6 +1277,7 @@ async function runVerificationAndSubmit(row, annotation) {
   }
 
   showVerifyLoading(true);
+  verifyAbort = new AbortController();
   const results = [];
   let errored = null;
   try {
@@ -1269,15 +1286,24 @@ async function runVerificationAndSubmit(row, annotation) {
       const head = `Đang kiểm tra claim ${i + 1}/${targets.length} · ${claim.label}`;
       setVerifyLoading(head, "");
       // eslint-disable-next-line no-await-in-loop
-      const result = await verifyClaim(row, claim, cfg, (step) => setVerifyLoading(head, `Bước: ${step}`));
+      const result = await verifyClaim(
+        row, claim, cfg,
+        (step) => setVerifyLoading(head, `Bước: ${step}`),
+        verifyAbort.signal,
+      );
       results.push(result);
     }
   } catch (err) {
     errored = err;
   }
   showVerifyLoading(false);
+  verifyAbort = null;
 
   if (errored) {
+    if (errored.cancelled) {
+      renderAll(); // annotator đã Hủy: không đổi trạng thái, không hiện lỗi
+      return;
+    }
     showVerificationError(errored, row, annotation);
     return;
   }
@@ -1476,6 +1502,12 @@ if (els.testModelBtn) els.testModelBtn.addEventListener("click", testModelConnec
 if (els.closeVerificationBtn) {
   els.closeVerificationBtn.addEventListener("click", () => {
     els.verificationModal.style.display = "none";
+  });
+}
+if (els.verifyCancelBtn) {
+  els.verifyCancelBtn.addEventListener("click", () => {
+    if (verifyAbort) verifyAbort.abort();
+    showVerifyLoading(false);
   });
 }
 window.addEventListener("click", (e) => {
