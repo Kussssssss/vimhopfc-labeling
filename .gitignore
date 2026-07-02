@@ -10,3 +10,7 @@
 
 # Local editor / tooling config
 /.claude/
+
+# Python cache
+__pycache__/
+*.pyc
