@@ -58,7 +58,7 @@ def serve():
         "--served-model-name", MODEL_NAME,
         "--host", "0.0.0.0",
         "--port", str(VLLM_PORT),
-        "--max-model-len", "2048",
+        "--max-model-len", "4096",
         "--gpu-memory-utilization", "0.90",
         "--enforce-eager",        # bỏ bước capture CUDA graph -> boot nhanh hơn ~30-60s.
                                   # Output ngắn (16 token) nên inference gần như không chậm đi.
