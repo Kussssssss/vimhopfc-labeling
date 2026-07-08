@@ -24,9 +24,8 @@ vllm_image = (
     .uv_pip_install("vllm==0.13.0", "huggingface-hub==0.36.0", "bitsandbytes>=0.46.1")
 )
 
-# 2) Cấu hình model (Dùng base 4-bit và LoRA adapter trực tiếp)
-MODEL_NAME = "unsloth/gemma-7b-bnb-4bit"
-LORA_NAME = "tranthaihoa/gemma_context"
+# 2) Cấu hình model đã merge LoRA hoàn chỉnh
+MODEL_NAME = "Kus669/gemma_context_merged"
 VLLM_PORT = 8000
 
 app = modal.App("gemma-unsloth-api")
@@ -37,7 +36,7 @@ hf_cache = modal.Volume.from_name("hf-cache", create_if_missing=True)
 
 @app.function(
     image=vllm_image,
-    gpu="T4",                 # 24GB, đủ cho Gemma-7B fp16. Idle = $0 (scale-to-zero)
+    gpu="L4",                 # L4 (24GB VRAM) đủ cho Gemma-7B/9B bfloat16. Idle = $0 (scale-to-zero)
     scaledown_window=600,     # giữ GPU ấm 10 phút sau request cuối -> trong 1 phiên làm việc
                               # chỉ cold-start 1 lần, các lần sau <1s. (tối đa Modal cho phép: 1200)
     timeout=10 * 60,
@@ -56,18 +55,14 @@ def serve():
     cmd = [
         "vllm", "serve", MODEL_NAME,
         "--served-model-name", MODEL_NAME,
+        "--served-model-name", "gemma_context", # alias để hỗ trợ gọi bằng cả 2 tên
         "--host", "0.0.0.0",
         "--port", str(VLLM_PORT),
         "--max-model-len", "4096",
         "--gpu-memory-utilization", "0.90",
+        "--dtype", "bfloat16",
         "--enforce-eager",        # bỏ bước capture CUDA graph -> boot nhanh hơn ~30-60s.
                                   # Output ngắn (16 token) nên inference gần như không chậm đi.
-        "--quantization", "bitsandbytes",
-        "--load-format", "bitsandbytes",
-        "--enable-lora",
-        "--lora-modules", f"gemma_context={LORA_NAME}",
-        # LƯU Ý KHI GỌI API: Hãy set tham số `model="gemma_context"` trong request
-        # để vLLM sử dụng LoRA adapter. Nếu dùng MODEL_NAME thì sẽ chỉ chạy base model.
         
         # Nếu app báo lỗi CORS khi bấm "Test kết nối", BỎ COMMENT 2 dòng dưới rồi deploy lại:
         # "--allowed-origins", '["*"]',
