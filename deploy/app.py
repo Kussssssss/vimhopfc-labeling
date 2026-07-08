@@ -58,7 +58,7 @@ def serve():
         "--served-model-name", "gemma_context", # alias để hỗ trợ gọi bằng cả 2 tên
         "--host", "0.0.0.0",
         "--port", str(VLLM_PORT),
-        "--max-model-len", "4096",
+        "--max-model-len", "2048",
         "--gpu-memory-utilization", "0.90",
         "--dtype", "bfloat16",
         "--enforce-eager",        # bỏ bước capture CUDA graph -> boot nhanh hơn ~30-60s.
